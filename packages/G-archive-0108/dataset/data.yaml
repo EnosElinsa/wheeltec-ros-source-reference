@@ -1,0 +1,6 @@
+train: /home/wheeltec/traffic_light_dataset/train/images
+val: /home/wheeltec/traffic_light_dataset/val/images
+
+
+nc: 3
+names: ['red','green','yellow']

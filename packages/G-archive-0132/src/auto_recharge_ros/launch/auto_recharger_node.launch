@@ -1,0 +1,15 @@
+<launch>
+	<arg name="output"  default="screen"/>
+
+	<!-- 小车寻找充电桩时，导航位置与充电桩位置的直线偏移距离,单位米 -->
+	<arg name="diff_point"     default="1.2"/>
+	<!-- 小车寻找充电桩时，导航位置与充电桩位置的角度偏移度数,单位度 -->
+	<arg name="diff_angle"     default="-15"/>
+
+	<!-- 开启自动回充功能-->
+	<node name="auto_recharger" pkg="auto_recharge_ros" type="auto_recharger.py" output="$(arg output)" >
+		<param name="diff_point" value="$(arg diff_point)"/>
+		<param name="diff_angle" value="$(arg diff_angle)"/>
+	</node>
+
+</launch>

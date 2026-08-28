@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+  <arg name="port" default="/dev/wheeltec_gnss" />
+  <arg name="baud" default="115200" />
+  <arg name="frame_id" default="navsat_link" />
+  <arg name="time_ref_source" default="gps" />
+  <arg name="useRMC" default="False" />
+  <!-- 天线前后安装时 -->
+  <!-- <arg name="rotation" default="0.0" /> -->
+  <!-- 天线左右安装时 -->
+  <arg name="rotation" default="90.0" />
+
+  <node name="nmea_serial_driver_node" pkg="wheeltec_gps_driver" type="nmea_serial_driver" output="screen">
+    <param name="port" value="$(arg port)"/>
+    <param name="baud" value="$(arg baud)" />
+    <param name="frame_id" value="$(arg frame_id)" />
+    <param name="time_ref_source" value="$(arg time_ref_source)" />
+    <param name="useRMC" value="$(arg useRMC)" />
+    <param name="rotation" value="$(arg rotation)" />
+
+  </node>
+</launch>

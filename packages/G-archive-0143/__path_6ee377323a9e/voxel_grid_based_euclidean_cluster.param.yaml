@@ -1,0 +1,17 @@
+/**:
+  ros__parameters:
+    tolerance: 0.5 #wheeltec
+    voxel_leaf_size: 0.2
+    min_points_number_per_voxel: 0
+    min_cluster_size: 3  #wheeltec
+    max_cluster_size: 3000
+    use_height: true
+    input_frame: "base_link"
+
+    # low height crop box filter param
+    max_x: 10.0
+    min_x: -10.0
+    max_y: 10.0
+    min_y: -10.0
+    max_z: 2.0
+    min_z: -10.0

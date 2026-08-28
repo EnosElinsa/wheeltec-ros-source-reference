@@ -1,0 +1,19 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "",
+        "limitSymbolsToIncludedHeaders": true
+      },
+      "includePath": [
+        "/home/passoni/wheeltec_laser/devel/include/**",
+        "/home/passoni/catkin_rviz/devel/include/**",
+        "/opt/ros/melodic/include/**",
+        "/home/passoni/wheeltec_laser/src/pointcloud_to_laserscan/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS"
+    }
+  ],
+  "version": 4
+}

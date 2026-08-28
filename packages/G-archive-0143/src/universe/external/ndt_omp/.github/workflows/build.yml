@@ -1,0 +1,40 @@
+name: Build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    types:
+      - opened
+      - synchronize
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ROS_DISTRO: [foxy, galactic, humble]
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Docker build gcc
+        uses: docker/build-push-action@v2
+        with:
+          file: ${{github.workspace}}/docker/Dockerfile_gcc
+          context: .
+          push: false
+          build-args: |
+            ROS_DISTRO=${{ matrix.ROS_DISTRO }}
+
+      - name: Docker build llvm
+        uses: docker/build-push-action@v2
+        with:
+          file: ${{github.workspace}}/docker/Dockerfile_llvm
+          context: .
+          push: false
+          build-args: |
+            ROS_DISTRO=${{ matrix.ROS_DISTRO }}

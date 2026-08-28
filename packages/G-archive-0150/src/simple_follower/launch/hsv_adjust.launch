@@ -1,0 +1,9 @@
+<launch>
+  <!-- 开启RGB摄像头  -->
+  <include file="$(find turn_on_wheeltec_robot)/launch/wheeltec_camera.launch" >
+	<arg name="if_usb_cam" value="true"/>
+  </include>
+
+  <node name='hsv_adjust' pkg="simple_follower" type="hsv_adjust.py"/>
+
+  </launch>

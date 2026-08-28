@@ -1,0 +1,13 @@
+<launch>
+    <node name="wheeltec_radar_net_node" pkg="wheeltec_radar" type="wheeltec_radar_net_node" output="screen">
+        <param name="device_ip" value="192.168.1.200"/>                 #雷达源IP
+        <param name="device_port" value="2369"/>                        #雷达源端口号
+        <param name="device_ip_difop" value="192.168.1.102"/>           #雷达目的ip
+        <param name="difop_port" value="2368"/>                         #雷达目的端口号
+        <param name="add_multicast" value="false"/>                     #是否启动组播
+        <param name="group_ip" value="224.1.1.2"/>                      #组播ip
+    </node>
+
+    <!-- 静态 TF 变换：base_footprint -> radar -->
+    <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_radar" args="0 0 0 0 0 0 base_footprint radar" /> -->
+</launch>

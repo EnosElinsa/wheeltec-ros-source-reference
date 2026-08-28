@@ -1,0 +1,20 @@
+<launch>
+  <!-- 开启激光雷达跟随以及pid计算节点  -->
+  <node name='radarTracker' pkg="simple_follower" type="radarTracker.py" output="screen">
+    <param name="disable_distance_x" value="1.5" type="double" />     <!-- 屏蔽左右方向距离超出disable_distance_x的目标 -->
+  </node>
+  <node pkg="simple_follower" type="radar_follow.py" name="radarfollower"  output="screen">
+    <param name="switchMode" value="True" type="bool" />
+    <!-- maxspeed: (angular and linear both),   tartetdist: the robot will try to keep this fixed distance -->
+    <param name='maxSpeed' value='1.0' type='double' />
+    <param name='targetDist' value='1.2' type='double' />
+    <param name='controllButtonIndex' value='-4' type='int' />
+    <rosparam param="/radarfollower/PID_controller/P">[2.600, 1.000]</rosparam>
+    <rosparam param="/radarfollower/PID_controller/I">[0.000, 0.000]</rosparam>
+    <rosparam param="/radarfollower/PID_controller/D">[0.000, 0.000]</rosparam>
+  </node>
+  <!-- 开启机器人底层相关节点  -->
+  <include file="$(find turn_on_wheeltec_robot)/launch/turn_on_wheeltec_robot.launch" />
+  <!-- turn on radar开启雷达  -->
+  <include file="$(find wheeltec_radar)/launch/wheeltec_radar.launch" />
+</launch>

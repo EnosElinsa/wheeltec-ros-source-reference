@@ -1,0 +1,7 @@
+<launch>
+	<arg name="output"  default="screen"/>
+
+	<!-- 开启自动回充功能-->
+	<node name="auto_recharger" pkg="auto_recharge_ros" type="auto_recharger.py" output="$(arg output)" />
+
+</launch>

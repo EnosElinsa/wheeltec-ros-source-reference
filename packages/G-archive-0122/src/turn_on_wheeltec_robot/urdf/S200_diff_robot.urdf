@@ -1,0 +1,418 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="S200_diff_robot">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.0082751 -0.036756 0.079893"
+        rpy="0 0 0" />
+      <mass
+        value="8.9762" />
+      <inertia
+        ixx="0.059402"
+        ixy="8.4154E-05"
+        ixz="-0.00082885"
+        iyy="0.056701"
+        iyz="-3.3321E-05"
+        izz="0.10541" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.37647 0.37647 0.37647 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="laser_link">
+    <inertial>
+      <origin
+        xyz="-0.00116387542477436 -1.43341130733055E-05 -0.0153253315835694"
+        rpy="0 0 0" />
+      <mass
+        value="0.0744137203029274" />
+      <inertia
+        ixx="5.07812779984651E-05"
+        ixy="-1.80357505374744E-08"
+        ixz="-9.82567135455483E-07"
+        iyy="5.528331966904E-05"
+        iyz="-7.35435978669885E-10"
+        izz="8.82566127125562E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/laser_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/laser_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="laser_joint"
+    type="fixed">
+    <origin
+      xyz="0.24012752875972 0.000105321716951851 0.29003261086643"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="laser_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="camera_link">
+    <inertial>
+      <origin
+        xyz="-0.00177242984917677 -1.55648592166935E-05 -0.00181083880658627"
+        rpy="0 0 0" />
+      <mass
+        value="0.0602274954022693" />
+      <inertia
+        ixx="0.000133435926180343"
+        ixy="-9.96617453031448E-07"
+        ixz="1.6229934269714E-06"
+        iyy="1.97954968729884E-05"
+        iyz="-4.42334063856432E-08"
+        izz="0.000134690240666836" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/camera_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/camera_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="camera_joint"
+    type="fixed">
+    <origin
+      xyz="0.291921528759723 0.000328321716947771 0.21270400000001"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="camera_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="controller_link">
+    <inertial>
+      <origin
+        xyz="-0.0215180544575649 -0.101576840092756 -0.0142985393665018"
+        rpy="0 0 0" />
+      <mass
+        value="16.3135324061328" />
+      <inertia
+        ixx="0.86101016894643"
+        ixy="0.00458450849928628"
+        ixz="0.00423806972153881"
+        iyy="0.510377444459043"
+        iyz="-0.00315891208106369"
+        izz="1.24639568502167" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/controller_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/controller_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="controller_joint"
+    type="fixed">
+    <origin
+      xyz="0.0190603985474061 0.081401826363683 0.0766000028295759"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="controller_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="rb_wheel_link">
+    <inertial>
+      <origin
+        xyz="6.21578804788081E-06 0.0010671650048456 2.10951664844083E-05"
+        rpy="0 0 0" />
+      <mass
+        value="1.80067920965915" />
+      <inertia
+        ixx="0.00472216215920028"
+        ixy="-1.70056190991038E-09"
+        ixz="1.61065415604396E-07"
+        iyy="0.00839319793490722"
+        iyz="9.32957087360779E-08"
+        izz="0.00472235590933654" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/rb_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/rb_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="rb_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="-0.173380898365079 -0.29119024152839 0.0370000000000128"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="rb_wheel_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="rf_wheel_link">
+    <inertial>
+      <origin
+        xyz="6.21572879501431E-06 0.00106716474984914 2.10952966172573E-05"
+        rpy="0 0 0" />
+      <mass
+        value="1.80067918832513" />
+      <inertia
+        ixx="0.00472216208175719"
+        ixy="-1.70204983173848E-09"
+        ixz="1.61063373200953E-07"
+        iyy="0.0083931978164185"
+        iyz="9.33009765020997E-08"
+        izz="0.00472235584128827" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/rf_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/rf_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="rf_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="0.178635955884511 -0.291198668653149 0.0370000000000116"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="rf_wheel_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="lb_wheel_link">
+    <inertial>
+      <origin
+        xyz="-6.21580698467739E-06 -0.00106716503526716 2.10952576883694E-05"
+        rpy="0 0 0" />
+      <mass
+        value="1.80067920621197" />
+      <inertia
+        ixx="0.00472216214325463"
+        ixy="-1.7000015731621E-09"
+        ixz="-1.61067991427927E-07"
+        iyy="0.00839319791812164"
+        iyz="-9.32986583256563E-08"
+        izz="0.0047223559061588" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/lb_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/lb_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="lb_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="-0.178380898365071 0.291417739211828 0.037000000000014"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="lb_wheel_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="lf_wheel_link">
+    <inertial>
+      <origin
+        xyz="-6.21576378974364E-06 -0.0010671647357693 2.10953490948629E-05"
+        rpy="0 0 0" />
+      <mass
+        value="1.80067918990027" />
+      <inertia
+        ixx="0.0047221620871708"
+        ixy="-1.70090249456553E-09"
+        ixz="-1.61067443593371E-07"
+        iyy="0.00839319782406416"
+        iyz="-9.33026876094638E-08"
+        izz="0.00472235584460127" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/lf_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://turn_on_wheeltec_robot/meshes/S200_diff_robot_meshes/lf_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="lf_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="0.173635955884525 0.291409312087058 0.0370000000000106"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="lf_wheel_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+</robot>

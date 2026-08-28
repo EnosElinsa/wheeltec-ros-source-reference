@@ -1,0 +1,28 @@
+# 默认车型，可在命令行覆盖
+#launch_arguments choices:  brushless_senior_diff、flagship_4wd_bs、flagship_4wd_dl、 flagship_four_wheel_diff_bs、
+        # flagship_four_wheel_diff_dl、flagship_mec_bs、flagship_mec_dl、four_wheel_diff_bs、four_wheel_diff_dl、
+        #  mini_4wd、mini_akm、mini_diff、mini_mec、mini_omni、mini_tank、top_mec_EightDrive
+        #  senior_4wd_bs、senior_4wd_dl、senior_akm、senior_diff、senior_mec_bs、senior_mec_dl、senior_omni、
+        #  top_4wd_bs、top_4wd_dl、top_akm_bs、top_akm_dl、top_mec_bs、top_mec_dl、top_omni、
+car_mode: top_mec_EightDrive      
+
+
+#雷达型号 ls_M10_uart ls_M10_net ls_M10P_uart ls_M10P_net  ls_N10_uart ls_N10_net ls_N10Plus_uart ls_N10Plus_net  
+#   ld14   ld06  ldstl06n  rplidar_ros  lscx
+lidar_type: ls_N10Plus_uart     
+
+x10:
+  lidar_port: /dev/wheeltec_lidar  # 雷达连接串口名称 使用网口请将值改为空
+  angle_disable_min: 0         # 雷达扫描最小裁剪角度 填整数 单位: 0.01°
+  angle_disable_max: 0         # 雷达扫描最大裁剪角度 填整数 单位: 0.01°
+lscx:
+  angle_disable_min: 0         # 雷达扫描最小裁剪角度 填整数 单位: 0.01°
+  angle_disable_max: 0         # 雷达扫描最大裁剪角度 填整数 单位: 0.01°
+
+# stm32  H30 
+imu_mode: H30   
+
+#相机型号   astra  astra_pro   dabai_u3   gemini   usb
+camera_mode: astra
+
+

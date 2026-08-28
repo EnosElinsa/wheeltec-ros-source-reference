@@ -1,0 +1,61 @@
+<launch>
+  <!--打开节点wheeltec_robot，初始化串口等操作-->
+  <arg name="smoother"  default="false"/> <!-- 是否开启速度平滑功能 -->
+  <arg name="odom_frame_id"  default="odom_combined"/> <!-- 设置里程计话题起点TF坐标 -->
+  <arg name="Ultrasonic_Avoid" default="false"/><!-- 是否开启超声波避障功能 -->
+  <arg name="use_N_series_IMU"  default="false"/> <!-- 是否使用轮趣N系列的惯导，默认false：使用小车控制板板载的IMU芯片 -->
+  <arg name="use_H_series_IMU"   default="false"/> <!-- 是否使用轮趣H系列的惯导，默认false：使用小车控制板板载的IMU芯片 -->
+  <arg name="use_wheeltec_gnss"  default="false"/> <!-- 是否使用轮趣gnss模块，默认false -->
+  <arg name="car_mode"  default="senior_diff"/>
+  <!-- 超声波开启避障距离设定 -->
+  <arg name="start_avoid"     default="0.3"/><!-- 超声波正前方避障距离 单位是m-->
+  <arg name="start_avoidLR"   default="0.35"/><!-- 超声波  侧方避障距离 单位是m-->
+
+  <node pkg="turn_on_wheeltec_robot" type="wheeltec_robot_node" name="wheeltec_robot" output="screen" respawn="false">
+    <param name="usart_port_name"    type="string" value="/dev/wheeltec_controller"/>  
+    <param name="serial_baud_rate"   type="int"    value="115200"/>
+    <param name="odom_frame_id"      type="string" value="$(arg odom_frame_id)"/> 
+    <param name="robot_frame_id"     type="string" value="base_footprint"/> 
+    <param name="gyro_frame_id"      type="string" value="gyro_link"/> 
+    <param name="car_mode"           type="string" value="$(arg car_mode)"/>
+    <!-- 里程计修正参数，对来自运动底盘的速度信息进行手动修正 -->
+    <param name="odom_x_scale"      type="double" value="1.0"/> 
+    <param name="odom_y_scale"      type="double" value="1.0"/> 
+    <param name="odom_z_scale_positive"      type="double" value="1.0"/> 
+    <param name="odom_z_scale_negative"      type="double" value="1.0"/> 
+
+
+    <!-- 如果开启了超声波避障功能，则订阅超声波避障速度 -->
+    <remap if="$(arg Ultrasonic_Avoid)" from="cmd_vel" to="change_cmd_vel"/>
+    <!-- 如果开启了平滑功能，则订阅平滑速度 -->
+    <remap if="$(arg smoother)" from="cmd_vel" to="smoother_cmd_vel"/>
+
+    <!-- 如果使用轮趣N系列、H系列的惯导、GNSS/RTK模块，对板载IMU话题进行重命名，避免相关节点订阅板载IMU话题 -->
+    <remap if="$(arg use_N_series_IMU)" from="imu" to="imu_on_board"/>
+    <remap if="$(arg use_H_series_IMU)" from="imu" to="imu_on_board"/>
+  </node>
+
+  <!-- 如果使用轮趣N系列的惯导、H系列的惯导、GNSS/RTK模块，启动相关launch文件，该节点发布的IMU话题名称就是【/imu】 -->
+  <include if="$(arg use_N_series_IMU)" 
+    file="$(find fdilink_ahrs)/launch/ahrs_data.launch" >
+  </include>
+  <include if="$(arg use_H_series_IMU)" 
+    file="$(find yesense_imu)/launch/yesense_ahrs.launch" >
+  </include>
+  <include if="$(arg use_wheeltec_gnss)" 
+    file="$(find wheeltec_gps_driver)/launch/wheeltec_nmea_driver.launch" >
+  </include>  
+
+  <!-- 如果开启了超声波避障功能，则运行避障功能包 -->
+  <node if="$(arg Ultrasonic_Avoid)" pkg="turn_on_wheeltec_robot" type="supersonic_avoid.py" output="screen" name="avoid">
+    <param name="start_avoid"  value="$(arg start_avoid)"/>
+    <param name="start_avoidLR" value="$(arg start_avoidLR)"/>
+    <param name="car_mode"     type="string" value="$(arg car_mode)"/> 
+  </node>
+
+  <!-- 如果开启了速度平滑功能，则运行速度平滑功能包 -->
+  <include if="$(arg smoother)" 
+    file="$(find turn_on_wheeltec_robot)/launch/include/velocity_smoother.launch" >
+  </include>
+
+</launch>

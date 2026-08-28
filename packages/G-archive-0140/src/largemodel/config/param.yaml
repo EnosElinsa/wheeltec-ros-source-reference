@@ -1,0 +1,10 @@
+action_service:                         #动作服务器节点参数 
+  ros__parameters:
+    Speed_topic: "/cmd_vel"             #速度话题
+    text_chat_mode: False               #文字交互模式 
+    image_topic: "/camera/color/image_raw" #相机图像话题 
+
+model_service:                          #模型服务器节点参数 # Model server node parameters
+  ros__parameters:
+    text_chat_mode: True               #文字交互模式
+    is_dual_model: False                #是否为双模型

@@ -1,0 +1,15 @@
+<launch>
+  <!-- 启动 imu_to_tf 节点 -->
+  <node pkg="imu_tf_broadcaster" type="imu_tf_broadcaster.py" name="imu_to_tf_node">
+    <!-- 设置 IMU 主题 -->
+    <param name="imu_topic" value="/imu"/>
+    <!-- 设置 IMU 坐标系 -->
+    <param name="imu_frame_id" value="gyro_link"/>
+    <!-- 设置世界坐标系 -->
+    <param name="world_frame_id" value="world"/>
+    <!-- 设置 IMU 位置 (可选，默认值为 0) -->
+    <param name="position_x" value="1"/>
+    <param name="position_y" value="1"/>
+    <param name="position_z" value="0"/>
+  </node>
+</launch>

@@ -1,0 +1,15 @@
+<launch>
+	<arg name="output"  default="screen"/>
+
+	<!-- 小车寻找充电桩时，导航位置与充电桩位置的直线偏移距离 -->
+	<arg name="diff_point"     default="1.0"/>
+
+	<!-- 开启自动回充功能-->
+	<node name="auto_recharger" pkg="auto_recharge_ros" type="auto_recharger.py" output="$(arg output)" >
+		<param name="diff_point" value="$(arg diff_point)"/>
+	</node>
+
+  <!-- 关闭底盘自主安全防护 -->
+  <node pkg="turn_on_wheeltec_robot" type="security_pub.py" output="screen" name="security_node"/>
+
+</launch>

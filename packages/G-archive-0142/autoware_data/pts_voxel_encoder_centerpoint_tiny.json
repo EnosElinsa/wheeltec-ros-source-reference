@@ -1,0 +1,13 @@
+{"Layers": ["Reformatting CopyNode for Input Tensor 0 to {ForeignNode[45 + ONNXTRT_Broadcast...ReduceMax_23]}"
+,"dummy_shape_call__mye9985_0_myl1_0"
+,"__myl_MovCon_myl1_1"
+,"MatMul_0_myl1_2"
+,"__myl_TraResMulAddResTraRelMax_myl1_3"
+,"__myl_RepCon_myl1_4"
+,"MatMul_18_myl1_5"
+,"__myl_TraResMulAddResTraRelMax_myl1_6"
+,"Reformatting CopyNode for Output Tensor 0 to {ForeignNode[45 + ONNXTRT_Broadcast...ReduceMax_23]}"
+],
+"Bindings": ["input_features"
+,"pillar_features"
+]}

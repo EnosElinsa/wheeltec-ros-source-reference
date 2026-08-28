@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>qt_ros_test</name>
+  <version>0.1.0</version>
+  <description>qt_ros_test</description>
+  <maintainer email="passoni@gmail.com">passoni</maintainer>
+  <author>passoni</author>
+  <license>BSD</license>
+  <!-- <url type="bugtracker">https://github.com/stonier/qt_ros/issues</url> -->
+  <!-- <url type="repository">https://github.com/stonier/qt_ros</url> -->
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <build_depend>rosidl_default_generators</build_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
+
+  <build_depend>qtbase5-dev</build_depend>
+  <exec_depend>libqt5-core</exec_depend>
+  <exec_depend>libqt5-gui</exec_depend>
+  <exec_depend>libqt5-widgets</exec_depend>
+ 
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

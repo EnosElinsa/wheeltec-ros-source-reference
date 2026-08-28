@@ -1,0 +1,26 @@
+<annotation>
+	<folder>photo</folder>
+	<filename>triangle5.jpg</filename>
+	<path>C:\Users\wheeltec\Desktop\新建文件夹 (2)\photo\triangle5.jpg</path>
+	<source>
+		<database>Unknown</database>
+	</source>
+	<size>
+		<width>1416</width>
+		<height>672</height>
+		<depth>1</depth>
+	</size>
+	<segmented>0</segmented>
+	<object>
+		<name>triangle</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>671</xmin>
+			<ymin>146</ymin>
+			<xmax>923</xmax>
+			<ymax>422</ymax>
+		</bndbox>
+	</object>
+</annotation>

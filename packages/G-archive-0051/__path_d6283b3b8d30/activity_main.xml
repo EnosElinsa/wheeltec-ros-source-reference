@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity"
+    android:background="@drawable/background2"
+    android:baselineAligned="false">
+
+
+    <ImageView
+        android:id="@+id/imageView"
+        android:layout_width="match_parent"
+        android:layout_height="75dp"
+        android:layout_weight="1"
+        android:layout_gravity="center"
+        android:src="@drawable/wheelteclogo" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_weight="1">
+
+
+        <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <Button
+                    android:id="@+id/back_button"
+                    android:layout_width="fill_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:onClick="back"
+                    style="@style/but_1"
+                    android:text="@string/back"
+                    tools:ignore="OnClick" />
+
+                <Button
+                    android:id="@+id/RGB_camera"
+                    android:layout_width="fill_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:onClick="clickHandler"
+                    style="@style/but_1"
+                    android:text="@string/rgb"
+                    tools:ignore="OnClick" />
+
+                <Button
+                    android:id="@+id/make_map"
+                    android:layout_width="fill_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:onClick="clickHandler"
+                    style="@style/but_1"
+                    android:text="@string/make_map"
+                    tools:ignore="OnClick" />
+
+                <Button
+                    android:id="@+id/map_nav"
+                    android:layout_width="fill_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:onClick="clickHandler"
+                    style="@style/but_1"
+                    android:text="@string/map_nav"
+                    tools:ignore="OnClick" />
+
+            </LinearLayout>
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_weight="8">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical">
+
+                    <EditText
+                        android:id="@+id/set_ip_text"
+                        android:layout_width="fill_parent"
+                        android:layout_height="wrap_content"
+                        android:autofillHints=""
+                        android:ems="10"
+                        android:inputType="textPersonName"
+                        android:text="@string/set_ip_text" />
+
+                    <RadioGroup
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_alignParentRight="true"
+                        android:orientation="horizontal">
+
+
+                        <RadioButton
+                            android:id="@+id/TebradioButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:onClick="OnClickTebLocalPlannerROS_topic"
+                            android:text="Teb" />
+
+                        <RadioButton
+                            android:id="@+id/DWAButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="false"
+                            android:onClick="OnClickNavfnROS_topic"
+                            android:text="DWA" />
+
+                    </RadioGroup>
+
+                </LinearLayout>
+
+            </FrameLayout>
+
+
+    </LinearLayout>
+
+</FrameLayout>

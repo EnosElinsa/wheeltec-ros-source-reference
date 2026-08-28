@@ -1,0 +1,21 @@
+wheeltec_jetracer:
+  ros__parameters:
+    normal_vel: 0.15                #小车常规速度
+    STEERING_GAIN: 0.7            #转向增益 参数推荐设置:(normal_vel,STEERING_GAIN)=(0.1,0.6)/(0.15,1.1)/(0.2,1.1)
+    STEERING_BIAS: 0.05           #车道中间调节 调大STEERING_BIAS向左偏移  调小STEERING_BIAS小车向右偏移,可为负数 
+    GOAL_X_MIN: -1.0
+    GOAL_X_MAX: 1.0
+    light_timeout: 1.0
+    video: "/dev/Astra_Pro"                      #使用相机的设备号。有pro相机设置/dev/Astra_Pro,只有RGB相机设置/dev/RgbCam
+    if_akm_yes_or_no: "no"
+
+#右转动作时间设置
+    turnright_1: 3.0      #直行时间      
+    turnright_2: 8.0       #直行后，右转弯时间
+
+#泊车动作时间设置
+    mec_duration: 3.5      #mec小车识别到标志后，巡线一段时间
+    parkin_1: 10.0         #识别到标志后，直行一段时间(mec不调整这个参数)
+    parkin_2: 4.9          # 倒车入库时间
+    parkin_3: 3.2          #入库后，倒车一段距离
+    parkin_4: 4.9          # 右转出库时间

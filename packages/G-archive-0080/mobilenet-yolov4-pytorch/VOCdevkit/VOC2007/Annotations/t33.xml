@@ -1,0 +1,26 @@
+<annotation>
+	<folder>photo</folder>
+	<filename>t33.jpg</filename>
+	<path>D:\新建文件夹 (2)\photo\t33.jpg</path>
+	<source>
+		<database>Unknown</database>
+	</source>
+	<size>
+		<width>2434</width>
+		<height>1973</height>
+		<depth>3</depth>
+	</size>
+	<segmented>0</segmented>
+	<object>
+		<name>triangle</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>1481</xmin>
+			<ymin>1829</ymin>
+			<xmax>1647</xmax>
+			<ymax>1948</ymax>
+		</bndbox>
+	</object>
+</annotation>

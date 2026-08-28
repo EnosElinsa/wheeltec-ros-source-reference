@@ -1,0 +1,15 @@
+<!-- -->
+<launch>
+
+  <arg name="plane" default="7"/>
+
+  <node if="$(eval plane==7)"   pkg="gnss_localizer" type="fix2tfpose" name="fix2tfpose" output="log">
+    <param name="plane" value="$(arg plane)"/>
+  </node>
+
+  <node if="$(eval plane==6)"  pkg="gnss_localizer" type="fix2tfpose_test" name="fix2tfpose_test" output="log">
+    <param name="plane" value="$(arg plane)"/>
+  </node>
+
+
+</launch>

@@ -1,0 +1,26 @@
+<annotation>
+	<folder>photo</folder>
+	<filename>s7.jpg</filename>
+	<path>D:\新建文件夹 (2)\photo\s7.jpg</path>
+	<source>
+		<database>Unknown</database>
+	</source>
+	<size>
+		<width>2434</width>
+		<height>1973</height>
+		<depth>3</depth>
+	</size>
+	<segmented>0</segmented>
+	<object>
+		<name>star</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>1200</xmin>
+			<ymin>1501</ymin>
+			<xmax>1447</xmax>
+			<ymax>1718</ymax>
+		</bndbox>
+	</object>
+</annotation>

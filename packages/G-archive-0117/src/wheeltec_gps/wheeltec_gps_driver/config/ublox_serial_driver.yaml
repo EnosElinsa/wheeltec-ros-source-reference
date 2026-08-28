@@ -1,0 +1,5 @@
+device: /dev/wheeltec_gnss
+frame_id: navsat_link
+uart1:
+  baudrate: 9600
+config_on_startup: false

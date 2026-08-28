@@ -1,0 +1,12 @@
+<launch>
+    <arg name="usart_port_name" default="/dev/wheeltec_mmwave_radar" />
+    <arg name="serial_baud_rate" default="115200" />
+
+    <node name="wheeltec_radar_node" pkg="wheeltec_radar" type="wheeltec_radar_node" output="screen">
+        <param name="usart_port_name" value="$(arg usart_port_name)" />
+        <param name="serial_baud_rate" value="$(arg serial_baud_rate)" />
+    </node>
+
+    <!-- 静态 TF 变换：base_footprint -> radar -->
+    <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_radar" args="0 0 0 0 0 0 base_footprint radar" /> -->
+</launch>

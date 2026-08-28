@@ -1,0 +1,4 @@
+float32 distance_front
+float32 distance_r5
+float32 distance_l45
+float32 distance_l75

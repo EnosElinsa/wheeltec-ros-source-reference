@@ -1,0 +1,6 @@
+/**:
+  ros__parameters:
+    update_rate: 10
+    min_acceleration: -1.0
+    max_jerk: 10.3  #wheeltec
+    min_jerk: -10.3 #wheeltec

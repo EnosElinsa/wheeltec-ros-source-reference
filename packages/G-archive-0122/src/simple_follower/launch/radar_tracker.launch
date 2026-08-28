@@ -1,0 +1,9 @@
+<launch>
+  <node name='radarTracker' pkg="simple_follower" type="radarTracker.py">
+    <param name="disable_distance_x" value="100.0" type="double" />     <!-- 屏蔽左右方向距离超出disable_distance_x的目标 -->
+  </node>
+  <!-- 开启机器人底层相关节点  -->
+  <include file="$(find turn_on_wheeltec_robot)/launch/turn_on_wheeltec_robot.launch" />
+  <!-- turn on lidar开启雷达  -->
+  <include file="$(find wheeltec_radar)/launch/wheeltec_radar.launch" />
+</launch>

@@ -1,0 +1,5 @@
+/**:
+  ros__parameters:
+    # ego
+    ego_nearest_dist_threshold: 0.1 # [m]wheeltec
+    ego_nearest_yaw_threshold: 0.1 # [rad] = 60 [deg]

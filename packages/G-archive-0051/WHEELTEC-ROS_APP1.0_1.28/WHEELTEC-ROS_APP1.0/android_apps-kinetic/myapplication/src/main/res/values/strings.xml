@@ -1,0 +1,37 @@
+<resources>
+    <string name="app_name">ROSAPP</string>
+    <string name="camera_topic">image_raw/compressed</string>
+    <string name="joystick_topic">cmd_vel</string>
+    <string name="stop_app">Kill</string>
+    <string name="default_robot"></string>
+    <string name="default_app">turtlebot_core_apps/android_make_a_map</string>
+    <string name="map_frame">map</string>
+    <string name="robot_frame">base_link</string>
+    <string name="map_topic">map</string>
+    <string name="scan_topic">scan</string>
+    <string name="save_map_srv">save_map</string>
+    <string name="set_ip_text">192.168.0.100</string>
+
+
+    <string name="costmap_topic">/move_base/local_costmap/costmap</string>
+    <string name="global_TebLocalPlannerROS_topic">move_base/TebLocalPlannerROS/global_plan</string>
+    <string name="global_NavfnROS_topic">move_base/NavfnROS/plan</string>
+    <string name="initial_pose_topic">initialpose</string>
+    <string name="clicked_point_topic">clicked_point</string>
+    <string name="simple_goal_topic">move_base_simple/goal</string>
+    <string name="move_base_goal_topic">move_base/goal</string>
+    <string name="list_maps_srv">list_maps</string>
+    <string name="publish_map_srv">publish_map</string>
+    <string name="global_NavfnROS">差速模式</string>
+    <string name="global_TebLocalPlannerROS">通用模式</string>
+
+
+    <string name="back">退出</string>
+    <string name="rgb">RGB摄像头</string>
+    <string name="make_map">建图</string>
+    <string name="map_nav">导航</string>
+    <string name="clicked_point">多点导航</string>
+    <string name="choose_a_map">Choose a map</string>
+    <string name="go_back">返回</string>
+    <string name="singleNav">单点导航</string>
+</resources>

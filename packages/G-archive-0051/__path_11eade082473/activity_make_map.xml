@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/main_view"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    android:background="@drawable/background2"
+    android:orientation="vertical" >
+
+    <LinearLayout
+        android:id="@+id/top_view"
+        android:layout_width="fill_parent"
+        android:layout_height="50dip"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/back_button"
+            style="@style/but_1"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:onClick="back"
+            android:text="返回" />
+
+        <ImageButton
+            android:id="@+id/refresh_button"
+            android:layout_width="50dip"
+            android:layout_height="50dip"
+            android:onClick="refreshMap"
+            android:padding="7.5dip"
+            android:scaleType="fitCenter"
+            android:src="@drawable/make_a_map_refresh" />
+
+        <ImageButton
+            android:id="@+id/save_map"
+            android:layout_width="50dip"
+            android:layout_height="50dip"
+            android:onClick="saveMap"
+            android:padding="7.5dip"
+            android:scaleType="fitCenter"
+            android:src="@drawable/make_a_map_save" />
+
+        <LinearLayout
+            android:id="@+id/top_bar"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:background="#ff404040"
+            android:gravity="right"
+            android:orientation="horizontal"
+            android:visibility="invisible" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:id="@+id/main_layout"
+            android:layout_width="fill_parent"
+            android:layout_height="fill_parent"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/side_layout"
+                android:layout_width="fill_parent"
+                android:layout_height="fill_parent"
+                android:layout_weight=".75"
+                android:gravity="right"
+                android:orientation="vertical">
+
+                <org.ros.android.view.visualization.VisualizationView
+                    android:id="@+id/map_view"
+                    android:layout_width="fill_parent"
+                    android:layout_height="fill_parent"
+                    android:layout_weight=".25" />
+
+                <org.ros.android.view.VirtualJoystickView
+                    android:id="@+id/virtual_joystick"
+                    android:layout_width="fill_parent"
+                    android:layout_height="fill_parent"
+                    android:layout_weight=".25"
+                    android:adjustViewBounds="true" />
+            </LinearLayout>
+
+            <org.ros.android.view.RosImageView
+                android:id="@+id/image"
+                android:layout_width="fill_parent"
+                android:layout_height="fill_parent"
+                android:layout_gravity="center"
+                android:layout_weight=".25"
+                android:src="@drawable/camera" />
+
+        </LinearLayout>
+
+
+    </FrameLayout>
+
+</LinearLayout>

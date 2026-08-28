@@ -1,0 +1,13 @@
+<launch>
+	<arg name="gps_topic" default="/gps/fix" />
+
+	<node name="gps_path_node" pkg="wheeltec_gps_driver" type="gps_path" output="screen" >
+	<remap from="/gps/fix" to="/ublox_gps_node/fix" />
+	</node>
+
+	<include file="$(find wheeltec_gps_driver)/launch/wheeltec_ublox_driver.launch"/>
+
+	<!--<node name="rviz" pkg="rviz" type="rviz" args="-d $(find wheeltec_gps_driver)/rviz/gps_path.rviz"/>-->
+
+
+</launch>

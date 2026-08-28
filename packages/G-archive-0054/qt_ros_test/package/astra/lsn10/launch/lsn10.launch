@@ -1,0 +1,13 @@
+<launch>
+    <node name="lsn10" pkg="lsn10" type="lsn10" output="screen">
+        <param name="scan_topic" value="scan"/>         
+        <param name="frame_id" value="laser_link"/>    
+        <param name="serial_port" value="/dev/ttyUSB0"/>  
+        <param name="baud_rate" value="230400" />      
+	<param name="angle_min" value="0.0"/>				
+	<param name="angle_max" value="360.0"/>			
+	<param name="range_min" value="0.02"/>				
+	<param name="range_max" value="150.0"/>			
+    </node>
+</launch>
+

@@ -1,0 +1,26 @@
+<annotation>
+	<folder>photo</folder>
+	<filename>c42.jpg</filename>
+	<path>D:\新建文件夹 (2)\photo\c42.jpg</path>
+	<source>
+		<database>Unknown</database>
+	</source>
+	<size>
+		<width>864</width>
+		<height>802</height>
+		<depth>3</depth>
+	</size>
+	<segmented>0</segmented>
+	<object>
+		<name>circle</name>
+		<pose>Unspecified</pose>
+		<truncated>1</truncated>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>761</xmin>
+			<ymin>707</ymin>
+			<xmax>864</xmax>
+			<ymax>779</ymax>
+		</bndbox>
+	</object>
+</annotation>
