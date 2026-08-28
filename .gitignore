@@ -1,6 +1,0 @@
-__pycache__/
-*.pyc
-.reference-tmp/
-release-assets/
-release-parts/
-release-state.json
