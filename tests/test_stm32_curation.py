@@ -32,3 +32,7 @@ def test_uv_projects_have_resolved_file_paths_and_include_headers():
         files = [n.text for n in ET.parse(uv).findall('.//FilePath') if n.text]
         assert files
         assert all((uv.parent / Path(item.replace('\\\\','/'))).is_file() for item in files)
+
+def test_no_generated_outputs_or_backup_files_in_curated_roots():
+    for root in (ROOT / "stm32/labs", ROOT / "stm32/control"):
+        assert not [p for p in root.rglob("*") if p.is_file() and (p.suffix.lower() in {".hex", ".bin", ".axf", ".lst", ".o", ".obj"} or "backup" in p.name.lower())]
