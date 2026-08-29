@@ -6,7 +6,6 @@ data_files.append(('share/ament_index/resource_index/packages', ['resource/' + p
 data_files.append(('share/' + package_name, ['launch/kcf_tracker.launch.py']))
 data_files.append(('share/' + package_name, ['package.xml']))
 data_files.append(('share/' + package_name, ['wheeltec_robot_kcf_model/yolo_detector.py']))
-data_files.append(('share/' + package_name + '/model', ['model/yolo11n.pt']))
 
 setup(
     name=package_name,

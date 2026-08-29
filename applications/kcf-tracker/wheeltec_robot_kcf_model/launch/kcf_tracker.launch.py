@@ -113,7 +113,6 @@ def generate_launch_description():
     yolo_process = ExecuteProcess(
         condition=IfCondition(PythonExpression(['"', LaunchConfiguration('use_yolo'), '" == "true"'])),
         cmd=[LaunchConfiguration('yolo_python'), yolo_script,
-             '--model', os.path.join(pkg_share, 'model', 'yolo11n.pt'),
              '--class', LaunchConfiguration('yolo_class')],
         output='screen',
     )

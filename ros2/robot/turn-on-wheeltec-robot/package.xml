@@ -5,7 +5,7 @@
   <version>0.0.0</version>
   <description>ROS2 turn_on_wheeltec_robot for wheeltec_robot</description>
   <maintainer email="wheeltec@todo.todo">wheeltec</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 

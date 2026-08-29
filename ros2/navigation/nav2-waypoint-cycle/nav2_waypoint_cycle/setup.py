@@ -15,8 +15,8 @@ setup(
     zip_safe=True,
     maintainer='noah',
     maintainer_email='noah@todo.todo',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    description='Minimal Nav2 waypoint cycle teaching package.',
+    license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
