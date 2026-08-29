@@ -93,29 +93,6 @@ def generate_launch_description():
         'camera_cy', default_value='241.0',
         description='光心 y 坐标 (px)')
 
-    # ---- YOLO 文件桥接 (conda 环境自动启动) ----
-    use_yolo_arg = DeclareLaunchArgument(
-        'use_yolo', default_value='false',
-        description='是否启用 YOLO 文件桥接修正 CSRT')
-    yolo_python_arg = DeclareLaunchArgument(
-        'yolo_python', default_value=os.path.expanduser('~/anaconda3/envs/wheeltec/bin/python3'),
-        description='conda 环境的 python 路径')
-    yolo_class_arg = DeclareLaunchArgument(
-        'yolo_class', default_value='all',
-        description='YOLO 检测目标 COCO 类别')
-    yolo_interval_arg = DeclareLaunchArgument(
-        'yolo_interval', default_value='30',
-        description='YOLO 送帧间隔 (帧数, 30≈1s@30fps)')
-
-    # YOLO 检测脚本 (conda 环境运行, 仅 use_yolo=true 时启动)
-    pkg_share = get_package_share_directory('wheeltec_robot_kcf_model')
-    yolo_script = os.path.join(pkg_share, 'yolo_detector.py')
-    yolo_process = ExecuteProcess(
-        condition=IfCondition(PythonExpression(['"', LaunchConfiguration('use_yolo'), '" == "true"'])),
-        cmd=[LaunchConfiguration('yolo_python'), yolo_script,
-             '--class', LaunchConfiguration('yolo_class')],
-        output='screen',
-    )
 
     # ---- KCF 跟踪节点 ----
     kcf_tracker_node = launch_ros.actions.Node(
@@ -145,8 +122,6 @@ def generate_launch_description():
             'camera_fy':        LaunchConfiguration('camera_fy'),
             'camera_cx':        LaunchConfiguration('camera_cx'),
             'camera_cy':        LaunchConfiguration('camera_cy'),
-            'use_yolo':          LaunchConfiguration('use_yolo'),
-            'yolo_interval':     LaunchConfiguration('yolo_interval'),
         }],
     )
 
@@ -164,9 +139,6 @@ def generate_launch_description():
         enable_cmd_vel_arg, show_display_arg,
         # 相机内参
         camera_fx_arg, camera_fy_arg, camera_cx_arg, camera_cy_arg,
-        # YOLO
-        use_yolo_arg, yolo_python_arg, yolo_class_arg, yolo_interval_arg,
-        # 跟踪节点 + YOLO 进程
+        # 跟踪节点
         kcf_tracker_node,
-        yolo_process,
     ])
