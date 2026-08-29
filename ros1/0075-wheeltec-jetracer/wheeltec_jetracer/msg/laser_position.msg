@@ -1,2 +1,0 @@
-float32 distance_front
-float32 distance_r5

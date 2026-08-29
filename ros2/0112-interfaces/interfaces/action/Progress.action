@@ -1,9 +1,0 @@
-# 请求定义
-string[] actions
-string llm_response
----
-# 结果定义
-bool success
----
-# 反馈定义
-string status

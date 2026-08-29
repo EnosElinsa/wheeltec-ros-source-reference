@@ -1,9 +1,0 @@
-# 单步动作 — 每次 goal 执行一个动作，返回详细结果
-string action
----
-bool success        # 动作是否成功
-string status       # 机器状态码，供 LLM 决策（如 navigation_done / move_left_done）
-string message      # 人类可读反馈，可直接发送给 TTS 语音模块
-string image_path   # seewhat 返回的图片保存路径（非 seewhat 为空）
----
-string progress     # 执行过程中的进度反馈

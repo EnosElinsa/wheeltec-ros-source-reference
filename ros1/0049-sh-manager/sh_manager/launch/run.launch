@@ -1,3 +1,0 @@
-<launch>
- <node name="sh_manager" pkg="sh_manager" type="self_check.sh" output="screen"/>
-</launch>

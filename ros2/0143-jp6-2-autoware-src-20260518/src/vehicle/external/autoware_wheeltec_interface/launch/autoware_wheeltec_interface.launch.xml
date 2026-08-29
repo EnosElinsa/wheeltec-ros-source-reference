@@ -1,9 +1,0 @@
-<launch>
-
-  <group>
-  <node pkg= "autoware_wheeltec_interface" exec="autoware_wheeltec_interface" name="autoware_wheeltec_interface" output="screen">
-  </node>
-  
-  </group>
-
-</launch>

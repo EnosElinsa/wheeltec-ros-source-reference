@@ -1,5 +1,0 @@
-<launch>
-  <log message="[astra_camera] Legacy launch redirected to orbbec_camera"/>
-
-  <include file="$(find-pkg-share orbbec_camera)/launch/gemini_arm.launch.py"/>
-</launch>

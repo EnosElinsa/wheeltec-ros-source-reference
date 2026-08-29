@@ -1,2 +1,0 @@
-string path
-string type

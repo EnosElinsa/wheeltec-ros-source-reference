@@ -1,6 +1,0 @@
-/**:
-  ros__parameters:
-    voxel_size_x: 2.0
-    voxel_size_y: 2.0
-    voxel_size_z: 2.0   #2.0: 1.4-1.7
-    #wheeltec

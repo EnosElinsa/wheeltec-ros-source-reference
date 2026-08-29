@@ -1,9 +1,0 @@
-<launch>
-
-    <arg name="project" default="ollama_chat_ros"/>
-      <!-- 1. 把参数文件一次性写进 Parameter Server -->
-    <rosparam command="load" file="$(find ollama_chat_ros)/config/ollama_params.yaml" />
-    <!-- 2. 启动节点 -->
-    <node pkg="ollama_chat_ros" type="chat_service.py" name="chat_server" output="screen"/>
-    <!-- <node pkg="ollama_chat_ros" type="ollama_topic_server.py" name="chat_server" output="screen"/> -->
-</launch>

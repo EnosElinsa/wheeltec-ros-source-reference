@@ -1,9 +1,0 @@
-Header header
-float32 distanceA
-float32 distanceB
-float32 distanceC
-float32 distanceD
-float32 distanceE
-float32 distanceF
-float32 distanceG
-float32 distanceH

@@ -1,4 +1,0 @@
-<launch>
-	<node pkg="map_server" type="map_saver" name="map_saver1" args="-f /home/wheeltec/wheeltec_robot/src/auto_recharge_ros/map/WHEELTEC" output="screen">	
-	</node>
-</launch>
