@@ -18,3 +18,7 @@ def test_bodyreader_is_complete_and_curated_scopes_have_no_numbered_roots():
     for scope in ('ros1','ros2','applications','platform'):
         assert not [item for item in (ROOT/scope).glob('*') if item.name[:1].isdigit()]
     assert validate_no_upstream_mirror(body)==[]
+    package = (body / "package.xml").read_text(encoding="utf-8")
+    assert "<license>user-confirmed-public</license>" in package
+    assert "<build_depend>geometry_msgs</build_depend>" in package
+    assert "<exec_depend>sensor_msgs</exec_depend>" in package
