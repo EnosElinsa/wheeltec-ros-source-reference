@@ -108,7 +108,7 @@ class CaptureRuntime(Node):
         self.create_subscription(String, "/vision/emitter_pair/status", self._on_emitter_status, 10)
         self.create_subscription(PointCloud2, "/vision/obstacles", self._on_obstacles, BEST_EFFORT)
         self.create_subscription(
-            PoseWithCovarianceStamped, "/rtabmap/localization_pose", self._on_localization, 10
+            PoseWithCovarianceStamped, "/localization_pose", self._on_localization, 10
         )
         self.create_subscription(TFMessage, "/tf", self._on_tf, BEST_EFFORT)
         self.create_subscription(TFMessage, "/tf_static", self._on_tf_static, TF_STATIC_QOS)
@@ -316,7 +316,7 @@ class CaptureRuntime(Node):
         }
 
     def _on_localization(self, msg: PoseWithCovarianceStamped) -> None:
-        self._mark("/rtabmap/localization_pose")
+        self._mark("/localization_pose")
         p = msg.pose.pose.position
         self._samples["localization_pose"] = {
             "frame_id": msg.header.frame_id,

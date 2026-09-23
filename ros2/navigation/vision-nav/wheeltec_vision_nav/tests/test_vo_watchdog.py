@@ -1,9 +1,12 @@
+from pathlib import Path
+
 from wheeltec_vision_nav.vo_watchdog_logic import (
     STATUS_LOST,
     STATUS_OK,
     STATUS_RECOVERING,
     WatchdogConfig,
     WatchdogState,
+    command_is_stale,
     evaluate_sample,
     note_map_correction,
     note_wheel,
@@ -118,3 +121,16 @@ def test_healthy_vo_never_zeroes_regardless_of_backup():
     state = WatchdogState()
     evaluate_sample(state, cfg, lost_flag=False, inliers=50)
     assert not should_zero_cmd(state, cfg, now=1.0)
+
+
+def test_old_velocity_command_is_not_repeated():
+    assert command_is_stale(-1.0, 10.0, 0.5)
+    assert not command_is_stale(9.8, 10.0, 0.5)
+    assert command_is_stale(9.4, 10.0, 0.5)
+
+
+def test_localization_freshness_comes_from_localization_pose_not_tf():
+    node = (Path(__file__).parents[1] / "wheeltec_vision_nav" / "vo_watchdog.py").read_text(encoding="utf-8")
+    assert '"/localization_pose"' in node
+    assert "TFMessage" not in node
+    assert "command_is_stale(self._last_cmd_time" in node

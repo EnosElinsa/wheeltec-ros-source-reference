@@ -84,12 +84,17 @@ def wheel_fresh(state: WatchdogState, cfg: WatchdogConfig, now: float) -> bool:
 
 
 def map_stale(state: WatchdogState, cfg: WatchdogConfig, now: float) -> bool:
-    """True when map->odom has not been refreshed for map_stale_s.
+    """True when RTAB-Map has not localized for map_stale_s.
 
-    Before the first correction arrives the map is considered stale, so the
+    Before the first localization arrives the map is considered stale, so the
     car does not drive on a pose that was never anchored to the map.
     """
     return state.last_map_time < 0.0 or (now - state.last_map_time) > cfg.map_stale_s
+
+
+def command_is_stale(last_cmd_time: float, now: float, timeout_s: float) -> bool:
+    """True when no velocity command has arrived for timeout_s (or none ever)."""
+    return last_cmd_time < 0.0 or (now - last_cmd_time) > timeout_s
 
 
 def vo_lost(state: WatchdogState) -> bool:

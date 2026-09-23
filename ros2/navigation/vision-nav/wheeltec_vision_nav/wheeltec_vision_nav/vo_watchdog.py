@@ -3,23 +3,25 @@
 
 Without the chassis, visual odometry is the only pose source: a VO loss stops
 the car. With the chassis, /odom keeps flowing from wheel odometry during a
-VO loss, so the car keeps driving until the map correction (map->odom) has not
-been refreshed for `map_stale_s` seconds.
+VO loss, so the car keeps driving until RTAB-Map has not localized for
+`map_stale_s` seconds. A localization is taken from /localization_pose, which
+RTAB-Map publishes only when it recognises a place; map->odom on /tf is
+re-broadcast continuously and says nothing about how old the correction is.
 """
 from __future__ import annotations
 
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
-from tf2_msgs.msg import TFMessage
 
 from wheeltec_vision_nav.vo_watchdog_logic import (
     STATUS_LOST,
     WatchdogConfig,
     WatchdogState,
+    command_is_stale,
     evaluate_sample,
     note_map_correction,
     note_wheel,
@@ -46,6 +48,8 @@ class VoWatchdog(Node):
         wheel_backup = bool(self.declare_parameter("wheel_backup", False).value)
         wheel_fresh_s = float(self.declare_parameter("wheel_fresh_s", 0.3).value)
         map_stale_s = float(self.declare_parameter("map_stale_s", 5.0).value)
+        self.cmd_timeout_s = float(self.declare_parameter("cmd_timeout_s", 0.5).value)
+        localization_topic = str(self.declare_parameter("localization_topic", "/localization_pose").value)
         cmd_in = str(self.declare_parameter("cmd_vel_in", "/cmd_vel").value)
         cmd_out = str(self.declare_parameter("cmd_vel_out", "/cmd_vel_safe").value)
         status_topic = str(self.declare_parameter("status_topic", "/vision/vo_status").value)
@@ -61,6 +65,7 @@ class VoWatchdog(Node):
         )
         self._state = WatchdogState()
         self._last_cmd = Twist()
+        self._last_cmd_time = -1.0
         self._had_cmd = False
         self._zeroing = False
         sensor_qos = QoSProfile(
@@ -73,8 +78,9 @@ class VoWatchdog(Node):
             self.create_subscription(OdomInfo, "/odom_info_lite", self._on_info, sensor_qos)
         if wheel_backup:
             self.create_subscription(Odometry, "/wheel/odom", self._on_wheel, sensor_qos)
-            self.create_subscription(Odometry, "/wheel/odom", self._on_wheel, 20)
-            self.create_subscription(TFMessage, "/tf", self._on_tf, 50)
+            self.create_subscription(
+                PoseWithCovarianceStamped, localization_topic, self._on_localization, 10
+            )
         self.create_subscription(Twist, cmd_in, self._on_cmd, 20)
         self.cmd_pub = self.create_publisher(Twist, cmd_out, 20)
         self.status_pub = self.create_publisher(String, status_topic, 10)
@@ -112,14 +118,12 @@ class VoWatchdog(Node):
     def _on_wheel(self, _msg: Odometry) -> None:
         note_wheel(self._state, self._now())
 
-    def _on_tf(self, msg: TFMessage) -> None:
-        for t in msg.transforms:
-            if t.header.frame_id == "map" and t.child_frame_id == "odom":
-                note_map_correction(self._state, self._now())
-                return
+    def _on_localization(self, _msg: PoseWithCovarianceStamped) -> None:
+        note_map_correction(self._state, self._now())
 
     def _on_cmd(self, msg: Twist) -> None:
         self._last_cmd = msg
+        self._last_cmd_time = self._now()
         self._had_cmd = True
         if not self._zero():
             self.cmd_pub.publish(msg)
@@ -145,8 +149,14 @@ class VoWatchdog(Node):
             return
         if self._zeroing:
             self._zeroing = False
-        if self._had_cmd:
-            self.cmd_pub.publish(self._last_cmd)
+        if not self._had_cmd:
+            return
+        if command_is_stale(self._last_cmd_time, self._now(), self.cmd_timeout_s):
+            # The controller stopped publishing: never keep driving on an old command.
+            self._had_cmd = False
+            self.cmd_pub.publish(Twist())
+            return
+        self.cmd_pub.publish(self._last_cmd)
 
 
 def main() -> None:

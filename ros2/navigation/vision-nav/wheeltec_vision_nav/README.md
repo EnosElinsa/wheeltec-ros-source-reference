@@ -75,10 +75,12 @@ RTAB-Map runs in localization mode on the saved database. Nav2 overrides
   Smac `reverse_penalty` 3.0;
 - behavior tree: clear costmaps, short `BackUp`, wait. No Spin.
 
-`vo_watchdog` relays Nav2 `/cmd_vel` to `/cmd_vel_safe`. With the chassis
-running a VO loss alone does not stop the car. The car stops and the goal is
-cancelled when `/wheel/odom` stops for 0.3 s or `map → odom` has not been
-refreshed for 5 s.
+`vo_watchdog` relays Nav2 `/cmd_vel` to `/cmd_vel_safe` and sends zero when
+no command has arrived for 0.5 s. With the chassis running a VO loss alone
+does not stop the car. During a VO loss the car stops and the goal is
+cancelled when `/wheel/odom` stops for 0.3 s or RTAB-Map has not published a
+`/localization_pose` for 5 s (`map → odom` on `/tf` is re-broadcast
+continuously and cannot tell how old the correction is).
 
 RViz: load `config/vision_runtime.rviz`. **2D Pose Estimate** publishes
 `/initialpose` to RTAB-Map for relocalization; **2D Goal Pose** is the Nav2 goal.
