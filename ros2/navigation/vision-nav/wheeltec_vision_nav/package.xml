@@ -25,10 +25,12 @@
   <exec_depend>rtabmap_sync</exec_depend>
   <exec_depend>rtabmap_odom</exec_depend>
   <exec_depend>rtabmap_slam</exec_depend>
+  <exec_depend>rtabmap_util</exec_depend>
+  <exec_depend>robot_localization</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
   <exec_depend>nav2_bringup</exec_depend>
   <exec_depend>turn_on_wheeltec_robot</exec_depend>
   <exec_depend>wheeltec_nav2</exec_depend>
-  <exec_depend>imu_filter_madgwick</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>action_msgs</exec_depend>
   <exec_depend>nav2_msgs</exec_depend>

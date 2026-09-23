@@ -72,6 +72,10 @@ def rtabmap_visual_config() -> str:
     return package_file("wheeltec_vision_nav", "config", "rtabmap_visual.yaml")
 
 
+def ekf_visual_config() -> str:
+    return package_file("wheeltec_vision_nav", "config", "ekf_visual.yaml")
+
+
 def ackermann_bt_xml() -> str:
     return package_file(
         "wheeltec_vision_nav",
@@ -196,6 +200,9 @@ def camera_cleanup_action():
             "pkill -f 'lib/wheeltec_vision_nav/vo_watchdo[g]' || true; "
             "pkill -f 'lib/wheeltec_vision_nav/wheel_odom_t[f]' || true; "
             "pkill -f 'lib/wheeltec_vision_nav/capture_runtim[e]' || true; "
+            "pkill -f '/opt/ros/humble/lib/robot_localization/ekf_nod[e]' || true; "
+            "pkill -f '/opt/ros/humble/lib/rtabmap_util/point_cloud_xy[z]' || true; "
+            "pkill -f '/opt/ros/humble/lib/rtabmap_util/obstacles_detectio[n]' || true; "
             "pkill -f '__node:=vision_joint_state_publishe[r]' || true; "
             "pkill -f '__node:=vision_imu_filte[r]' || true; "
             "pkill -f '__node:=vision_robot_state_publishe[r]' || true; "
@@ -287,8 +294,8 @@ def visual_odometry_node(use_wheel_guess=False, use_imu=False):
         "frame_id": "base_footprint",
         "odom_frame_id": "odom",
         # Humble rgbd_odometry with guess_frame_id may publish odom→wheel_odom
-        # instead of odom→base_footprint. TF for the robot frame is broadcast
-        # from /odom by hold_odom_tf so the tree stays one piece.
+        # instead of odom→base_footprint. The robot frame gets its odom parent
+        # from the EKF (chassis running) or hold_odom_tf (camera only).
         "publish_tf": False,
         "subscribe_rgbd": True,
         "approx_sync": False,
@@ -319,9 +326,20 @@ def visual_odometry_node(use_wheel_guess=False, use_imu=False):
     )
 
 
+# Variance given to every odometry link between two map nodes. RTAB-Map reads
+# odometry from TF (odom -> base_footprint) instead of the /odom covariance:
+# the chassis reports a yaw variance of 1e3 rad^2, which left the pose graph
+# with no heading constraint and let a few wrong loop closures twist the map.
+ODOM_TF_LINEAR_VARIANCE = 0.0005
+ODOM_TF_ANGULAR_VARIANCE = 0.0005
+
+
 def rtabmap_node(database_path, localization=False, wipe_db=True):
     params = {
         "frame_id": "base_footprint",
+        "odom_frame_id": "odom",
+        "odom_tf_linear_variance": ODOM_TF_LINEAR_VARIANCE,
+        "odom_tf_angular_variance": ODOM_TF_ANGULAR_VARIANCE,
         "subscribe_rgbd": True,
         "subscribe_scan": False,
         "subscribe_depth": False,
@@ -417,29 +435,79 @@ def wheel_odom_tf_node(condition=None):
     return Node(**kwargs)
 
 
-def imu_filter_node(condition=None):
-    """Complement raw chassis IMU so VO can subscribe to /imu/data."""
+def ekf_node(condition=None):
+    """Fuse wheel speed, gyro yaw rate and VO velocity into /odom and odom -> base_footprint."""
     kwargs = {
-        "package": "imu_filter_madgwick",
-        "executable": "imu_filter_madgwick_node",
-        "name": "vision_imu_filter",
+        "package": "robot_localization",
+        "executable": "ekf_node",
+        "name": "vision_ekf",
         "output": "screen",
-        "parameters": [
-            {
-                "use_mag": False,
-                "publish_tf": False,
-                "world_frame": "enu",
-                "fixed_frame": "odom",
-            }
-        ],
-        "remappings": [
-            ("imu/data_raw", "/imu/data_raw"),
-            ("imu/data", "/imu/data"),
-        ],
+        "parameters": [ekf_visual_config()],
+        "remappings": [("odometry/filtered", "/odom")],
     }
     if condition is not None:
         kwargs["condition"] = condition
     return Node(**kwargs)
+
+
+PAIRED_DEPTH_TOPIC = "/vision/paired/depth/image_rect_raw"
+PAIRED_DEPTH_INFO_TOPIC = "/vision/paired/depth/camera_info"
+DEPTH_CLOUD_TOPIC = "/vision/depth_cloud"
+OBSTACLES_TOPIC = "/vision/obstacles"
+
+
+def depth_obstacle_nodes():
+    """Obstacle points for the local costmap straight from each paired depth image.
+
+    point_cloud_xyz turns the projected (emitter-on) depth into a decimated,
+    voxel-filtered cloud. obstacles_detection splits it into ground and
+    obstacles in base_footprint with the same height limits as the map grid.
+    """
+    cloud = Node(
+        package="rtabmap_util",
+        executable="point_cloud_xyz",
+        name="vision_depth_cloud",
+        output="screen",
+        parameters=[
+            {
+                "decimation": 4,
+                "voxel_size": 0.05,
+                "min_depth": 0.20,
+                "max_depth": 3.0,
+                "approx_sync": False,
+                "qos": 2,
+                "qos_camera_info": 2,
+            }
+        ],
+        remappings=[
+            ("depth/image", PAIRED_DEPTH_TOPIC),
+            ("depth/camera_info", PAIRED_DEPTH_INFO_TOPIC),
+            ("cloud", DEPTH_CLOUD_TOPIC),
+        ],
+    )
+    obstacles = Node(
+        package="rtabmap_util",
+        executable="obstacles_detection",
+        name="vision_obstacles_detection",
+        output="screen",
+        parameters=[
+            {
+                "frame_id": "base_footprint",
+                "wait_for_transform": 0.2,
+                "Grid/NormalsSegmentation": "true",
+                "Grid/MaxGroundAngle": "30",
+                "Grid/MaxGroundHeight": "0.05",
+                "Grid/MaxObstacleHeight": "1.80",
+                "Grid/MinClusterSize": "5",
+            }
+        ],
+        remappings=[
+            ("cloud", DEPTH_CLOUD_TOPIC),
+            ("obstacles", OBSTACLES_TOPIC),
+            ("ground", "/vision/ground"),
+        ],
+    )
+    return [cloud, obstacles]
 
 
 def hold_odom_tf_node(condition=None):
@@ -506,7 +574,12 @@ def visual_runtime_actions(
     use_wheel_guess=None,
     wipe_db=True,
 ):
-    """Odometry, RTAB-Map, chassis/guess TF, and odom→base_footprint relay."""
+    """Odometry, RTAB-Map, chassis and the single owner of odom -> base_footprint.
+
+    With the chassis running, the EKF fuses wheel speed, gyro yaw rate and VO
+    velocity and owns odom -> base_footprint. Camera only, hold_odom_tf relays
+    the visual pose instead.
+    """
     _ = hold_odom
     if use_wheel_guess is None:
         use_wheel_guess = False
@@ -515,7 +588,6 @@ def visual_runtime_actions(
     actions = [
         visual_odometry_node(use_wheel_guess=use_wheel_guess, use_imu=False),
         rtabmap_node(database_path, localization=localization, wipe_db=wipe_db),
-        hold_odom_tf_node(),
     ]
     if start_chassis:
         cmd_vel_topic = "cmd_vel_safe" if localization else "cmd_vel"
@@ -523,8 +595,11 @@ def visual_runtime_actions(
             isolated_base_node(connect_base_footprint=True, cmd_vel_topic=cmd_vel_topic)
         )
         actions.append(wheel_odom_tf_node())
-        actions.append(imu_filter_node())
+        actions.append(ekf_node())
+    else:
+        actions.append(hold_odom_tf_node())
     if localization:
+        actions.extend(depth_obstacle_nodes())
         actions.append(vo_watchdog_node(wheel_backup=start_chassis))
     return actions
 
@@ -541,20 +616,31 @@ VX_MAX = 0.3
 VX_MIN = -0.15
 WZ_MAX = 1.0
 
+# The Jetson also runs the camera, VO and RTAB-Map; at 20 Hz the controller
+# missed its rate. Humble MPPI requires the control period to equal model_dt,
+# so the horizon keeps 2.8 s with 28 steps of 0.1 s.
+CONTROLLER_FREQUENCY = 10.0
+MPPI_MODEL_DT = 0.1
+MPPI_TIME_STEPS = 28
+MPPI_BATCH_SIZE = 1000
+# Ackermann can reverse, but reversing is the exception: weight forward motion
+# in the controller and penalise reverse segments in the planner.
+PREFER_FORWARD_WEIGHT = 5.0
+SMAC_REVERSE_PENALTY = 3.0
+
 DEPTH_CLOUD_SOURCE = {
-    "topic": "/cloud_obstacles",
+    "topic": OBSTACLES_TOPIC,
     "data_type": "PointCloud2",
     "clearing": True,
     "marking": True,
     "min_obstacle_height": 0.05,
     "max_obstacle_height": 1.8,
     "obstacle_min_range": 0.20,
-    "obstacle_max_range": 4.0,
+    "obstacle_max_range": 3.0,
     "raytrace_min_range": 0.20,
-    "raytrace_max_range": 4.0,
-    # Obstacle points are republished with each RTAB-Map update (~1-2 Hz).
-    # Keep them for a short while so the local costmap does not flicker.
-    "observation_persistence": 0.5,
+    "raytrace_max_range": 3.0,
+    # Obstacle points arrive with every paired depth image (~15 Hz).
+    "observation_persistence": 0.0,
 }
 
 
@@ -563,6 +649,9 @@ def _tune_mppi(follow: dict) -> None:
     follow["vx_max"] = VX_MAX
     follow["vx_min"] = VX_MIN
     follow["wz_max"] = WZ_MAX
+    follow["model_dt"] = MPPI_MODEL_DT
+    follow["time_steps"] = MPPI_TIME_STEPS
+    follow["batch_size"] = MPPI_BATCH_SIZE
     obstacles = follow.setdefault("ObstaclesCritic", {})
     if isinstance(obstacles, dict):
         obstacles["inflation_radius"] = INFLATION_RADIUS
@@ -571,6 +660,9 @@ def _tune_mppi(follow: dict) -> None:
         obstacles["repulsion_weight"] = 1.5
         obstacles["collision_margin_distance"] = 0.05
         obstacles["consider_footprint"] = True
+    forward = follow.setdefault("PreferForwardCritic", {})
+    if isinstance(forward, dict):
+        forward["cost_weight"] = PREFER_FORWARD_WEIGHT
 
 
 def write_visual_nav_params(source_path: str) -> str:
@@ -584,6 +676,7 @@ def write_visual_nav_params(source_path: str) -> str:
 
     controller = cfg.setdefault("controller_server", {}).setdefault("ros__parameters", {})
     controller["odom_topic"] = "/odom"
+    controller["controller_frequency"] = CONTROLLER_FREQUENCY
     follow = controller.setdefault("FollowPath", {})
     if isinstance(follow, dict):
         if "MPPI" in str(follow.get("plugin", "")):
@@ -610,6 +703,8 @@ def write_visual_nav_params(source_path: str) -> str:
     grid_based = planner.get("GridBased")
     if isinstance(grid_based, dict):
         grid_based["allow_unknown"] = True
+        if "Smac" in str(grid_based.get("plugin", "")):
+            grid_based["reverse_penalty"] = SMAC_REVERSE_PENALTY
 
     static_layer_cfg = {
         "plugin": "nav2_costmap_2d::StaticLayer",

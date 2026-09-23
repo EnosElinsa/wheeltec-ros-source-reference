@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Relay wheel or visual odometry to /odom and TF."""
+"""Camera-only runs: relay visual odometry to /odom and odom -> base_footprint.
+
+With the chassis running the EKF owns /odom and this node is not started.
+"""
 from __future__ import annotations
 
 import rclpy
@@ -16,8 +19,6 @@ from wheeltec_vision_nav.hold_odom_tf_logic import (
     gated_odom_sample,
     odom_sample_is_valid,
     stitch_odom_sample,
-    wheel_relative_sample,
-    wheel_source_is_fresh,
 )
 
 
@@ -97,15 +98,8 @@ class HoldOdomTf(Node):
     def __init__(self) -> None:
         super().__init__("vision_hold_odom_tf")
         self.last_valid: OdomSample | None = None
-        self.last_valid_time = 0.0
-        self.wheel_origin: OdomSample | None = None
-        self.last_wheel_time = 0.0
-        self.last_wheel_stamp: tuple[int, int] | None = None
         self.seed_map_tf = True
         self.stitch = OdomStitch()
-        self.last_tf = _tf_from_sample(
-            OdomSample(0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1e-5)
-        )
         vo_qos = QoSProfile(
             depth=20,
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -117,69 +111,26 @@ class HoldOdomTf(Node):
             history=HistoryPolicy.KEEP_LAST,
         )
         self.create_subscription(Odometry, "/odom_vo", self._on_odom, vo_qos)
-        self.create_subscription(Odometry, "/wheel/odom", self._on_wheel, vo_qos)
-        wheel_qos = QoSProfile(
-            depth=20,
-            reliability=ReliabilityPolicy.RELIABLE,
-            history=HistoryPolicy.KEEP_LAST,
-        )
-        self.create_subscription(Odometry, "/wheel/odom", self._on_wheel, wheel_qos)
         self.create_subscription(OccupancyGrid, "/map", self._on_map, MAP_QOS)
         self.odom_pub = self.create_publisher(Odometry, "/odom", odom_pub_qos)
         self.tf_pub = self.create_publisher(TFMessage, "/tf", 50)
         self.create_timer(0.05, self._tick)
 
-    def _now(self) -> float:
-        return self.get_clock().now().nanoseconds * 1e-9
-
-    def _wheel_fresh(self) -> bool:
-        return wheel_source_is_fresh(self._now(), self.last_wheel_time)
-
     def _on_map(self, _msg: OccupancyGrid) -> None:
         self.seed_map_tf = False
 
-    def _bundle(self, stamp) -> list[TransformStamped]:
-        t = TransformStamped()
-        t.header.stamp = stamp
-        t.header.frame_id = self.last_tf.header.frame_id
-        t.child_frame_id = self.last_tf.child_frame_id
-        t.transform = self.last_tf.transform
-        out = [t]
-        if self.seed_map_tf:
-            out.append(_identity_map_odom(stamp))
-        return out
-
-    def _broadcast_tf(self, stamp) -> None:
-        self.tf_pub.publish(TFMessage(transforms=self._bundle(stamp)))
-
     def _publish_sample(self, sample: OdomSample, template: Odometry | None = None) -> None:
-        odom = _msg_from_sample(sample, template)
-        self.odom_pub.publish(odom)
-        t = _tf_from_sample(sample)
-        self.last_tf = t
-        self.tf_pub.publish(TFMessage(transforms=self._bundle(t.header.stamp)))
-        self._broadcast_tf(self.get_clock().now().to_msg())
-
-    def _on_wheel(self, msg: Odometry) -> None:
-        stamp = (int(msg.header.stamp.sec), int(msg.header.stamp.nanosec))
-        if stamp == self.last_wheel_stamp:
-            return
-        self.last_wheel_stamp = stamp
-        incoming = _sample_from_msg(msg)
-        self.wheel_origin, published = wheel_relative_sample(self.wheel_origin, incoming)
-        self.last_valid = published
-        self.last_valid_time = self._now()
-        self.last_wheel_time = self.last_valid_time
-        self._publish_sample(published, msg)
+        # The transform carries the image stamp of the pose it describes. It is
+        # never re-sent with a later stamp: that would tell TF the car stood
+        # still until now and then jumped back.
+        self.odom_pub.publish(_msg_from_sample(sample, template))
+        self.tf_pub.publish(TFMessage(transforms=[_tf_from_sample(sample)]))
 
     def _on_odom(self, msg: Odometry) -> None:
-        if self._wheel_fresh():
-            return
         incoming = _sample_from_msg(msg)
         if odom_sample_is_valid(incoming):
             published = stitch_odom_sample(self.stitch, incoming)
             self.last_valid = published
-            self.last_valid_time = self._now()
             self._publish_sample(published, msg)
             return
         gated = gated_odom_sample(self.last_valid, incoming)
@@ -189,7 +140,11 @@ class HoldOdomTf(Node):
         self._publish_sample(gated, template)
 
     def _tick(self) -> None:
-        self._broadcast_tf(self.get_clock().now().to_msg())
+        # Until RTAB-Map publishes its first map, give map -> odom as identity so
+        # RViz can show the robot in the map frame.
+        if self.seed_map_tf:
+            stamp = self.get_clock().now().to_msg()
+            self.tf_pub.publish(TFMessage(transforms=[_identity_map_odom(stamp)]))
 
 
 def main() -> None:

@@ -61,8 +61,8 @@ def test_wheel_guess_keeps_visual_tf_and_uses_wheel_odom():
     assert 'params["imu_topic"] = "/imu/data_raw"' not in helpers
     assert 'odom_frame_id = "wheel_odom"' in helpers
     assert 'robot_frame_id = "base_footprint"' in helpers
-    assert "imu_filter_madgwick" in helpers
-    assert "<exec_depend>imu_filter_madgwick</exec_depend>" in package_xml
+    assert "<exec_depend>robot_localization</exec_depend>" in package_xml
+    assert "<exec_depend>rtabmap_util</exec_depend>" in package_xml
     assert "<exec_depend>joint_state_publisher</exec_depend>" in package_xml
     assert "joint_state_publisher" in helpers
     assert 'visual_odometry_node(use_wheel_guess=use_wheel_guess, use_imu=False)' in helpers
@@ -73,9 +73,9 @@ def test_wheel_guess_keeps_visual_tf_and_uses_wheel_odom():
     assert 'follow["vx_min"] = 0.0' not in helpers
     assert '"map_topic": "/map"' in helpers
     assert "/camera/depth/color/points" not in helpers
-    assert '"topic": "/cloud_obstacles"' in helpers
+    assert '"topic": OBSTACLES_TOPIC' in helpers
     assert "hold_odom and not start_base and not localization" not in helpers
-    assert "        hold_odom_tf_node()," in helpers
+    assert "actions.append(hold_odom_tf_node())" in helpers
     assert '("odom", "/odom_vo")' in helpers
     assert '"wait_for_transform": 0.5' in helpers
     assert '"parent_frame": "base_footprint"' in helpers
@@ -235,23 +235,21 @@ def test_vo_watchdog_ackermann_bt_and_initialpose():
     assert "ClearEntireCostmap" in bt
     assert "if localization:" in helpers
     assert "hold_odom and not start_base and not localization" not in helpers
-    assert "        hold_odom_tf_node()," in helpers
+    assert "actions.append(hold_odom_tf_node())" in helpers
 
 
-def test_hold_odom_tf_republishes_tf_at_current_time():
+def test_hold_odom_tf_relays_vo_at_image_stamp_only():
     text = (ROOT / "wheeltec_vision_nav" / "hold_odom_tf.py").read_text(encoding="utf-8")
     assert 'self.create_subscription(Odometry, "/odom_vo"' in text
-    assert 'self.create_subscription(Odometry, "/wheel/odom"' in text
-    assert "wheel_relative_sample" in text
-    assert "if self._wheel_fresh()" in text
+    # Camera-only relay: the EKF owns /odom while the chassis runs.
+    assert '"/wheel/odom"' not in text
     assert "t.transform.translation.z = 0.0" in text
-    assert 'self.create_publisher(Odometry, "/odom"' in text
-    assert "ReliabilityPolicy.BEST_EFFORT" in text
     assert 'self.create_publisher(Odometry, "/odom", odom_pub_qos)' in text
-    assert "odom_pub_qos" in text
+    assert "ReliabilityPolicy.BEST_EFFORT" in text
     assert "self.create_timer(0.05, self._tick)" in text
-    assert "def _broadcast_tf(self, stamp)" in text
-    assert "self._broadcast_tf(self.get_clock().now().to_msg())" in text
+    # The odom -> base_footprint transform is never re-stamped with the current time.
+    assert "_broadcast_tf" not in text
+    assert "TFMessage(transforms=[_tf_from_sample(sample)])" in text
     assert "stitch_odom_sample" in text
     assert 'self.create_subscription(OccupancyGrid, "/map"' in text
     assert 't.header.frame_id = "map"' in text
@@ -272,7 +270,7 @@ def test_rviz_config_uses_visual_topics_and_map_frame():
     assert "Value: /odom" in rviz
     assert "/camera/depth/color/points" not in rviz
     assert "/scan" not in rviz
-    assert "Value: /cloud_obstacles" in rviz
+    assert "Value: /vision/obstacles" in rviz
     assert "senior_akm_robot.urdf" not in rviz
     assert "Value: /robot_description" in rviz
     assert "Description Source: Topic" in rviz
@@ -290,7 +288,115 @@ def test_visual_nav_params_local_costmap_has_no_static_layer_and_mppi_matches_in
     assert 'obstacles["inflation_radius"] = INFLATION_RADIUS' in helpers
     assert 'inflation["inflation_radius"] = INFLATION_RADIUS' in helpers
     assert 'obstacles["consider_footprint"] = True' in helpers
-    assert '"observation_persistence": 0.5' in helpers
+    assert '"observation_persistence": 0.0' in helpers
     assert 'progress["movement_time_allowance"] = 20.0' in helpers
     assert "vo_watchdog_node(wheel_backup=start_chassis)" in helpers
     assert '"map_stale_s": 5.0' in helpers
+
+
+class _RecordedNode:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
+def _launch_utils():
+    """Import launch_utils with ROS launch packages stubbed; Node records its kwargs."""
+    import importlib.util
+    import sys
+    import types
+
+    for name in ("ament_index_python", "ament_index_python.packages", "launch", "launch.actions",
+                 "launch.launch_description_sources", "launch_ros", "launch_ros.actions"):
+        sys.modules.setdefault(name, types.ModuleType(name))
+    sys.modules["ament_index_python.packages"].get_package_share_directory = lambda p: str(ROOT)
+    for attr in ("ExecuteProcess", "IncludeLaunchDescription", "TimerAction"):
+        setattr(sys.modules["launch.actions"], attr, _RecordedNode)
+    sys.modules["launch.launch_description_sources"].PythonLaunchDescriptionSource = _RecordedNode
+    sys.modules["launch_ros.actions"].Node = _RecordedNode
+    spec = importlib.util.spec_from_file_location("lu_runtime", ROOT / "wheeltec_vision_nav" / "launch_utils.py")
+    lu = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lu)
+    return lu
+
+
+def _executables(actions):
+    return [a.kwargs.get("executable") for a in actions]
+
+
+def test_chassis_run_gives_odom_to_the_ekf():
+    lu = _launch_utils()
+    actions = lu.visual_runtime_actions("/tmp/x.db", localization=True, start_base=True, hold_odom=False)
+    names = _executables(actions)
+    assert "ekf_node" in names
+    assert "hold_odom_tf" not in names
+    assert "imu_filter_madgwick_node" not in names
+    assert {"point_cloud_xyz", "obstacles_detection", "vo_watchdog"} <= set(names)
+    ekf = actions[names.index("ekf_node")].kwargs
+    assert ("odometry/filtered", "/odom") in ekf["remappings"]
+    rtabmap = actions[names.index("rtabmap")].kwargs["parameters"][1]
+    assert rtabmap["odom_frame_id"] == "odom"
+    assert 0.0 < rtabmap["odom_tf_angular_variance"] < 0.01
+    assert 0.0 < rtabmap["odom_tf_linear_variance"] < 0.01
+
+
+def test_camera_only_mapping_relays_vo_without_ekf():
+    lu = _launch_utils()
+    names = _executables(lu.visual_runtime_actions("/tmp/x.db", localization=False, start_base=False, hold_odom=False))
+    assert "hold_odom_tf" in names
+    assert "ekf_node" not in names
+    assert "point_cloud_xyz" not in names
+
+
+def test_ekf_config_fuses_wheel_gyro_and_vo_velocity():
+    import yaml
+
+    cfg = yaml.safe_load((ROOT / "config" / "ekf_visual.yaml").read_text(encoding="utf-8"))
+    p = cfg["vision_ekf"]["ros__parameters"]
+    assert p["two_d_mode"] is True and p["publish_tf"] is True
+    assert p["world_frame"] == "odom" and p["base_link_frame"] == "base_footprint"
+    vx, vy, vyaw = 6, 7, 11
+    assert p["odom0"] == "/wheel/odom"
+    assert p["odom0_config"][vx] and p["odom0_config"][vy] and p["odom0_config"][vyaw]
+    assert p["imu0"] == "/imu/data_raw" and p["imu0_config"][vyaw]
+    assert sum(p["imu0_config"]) == 1
+    assert p["odom1"] == "/odom_vo" and p["odom1_config"][vx] and p["odom1_config"][vyaw]
+    assert p["odom1_twist_rejection_threshold"] > 0
+    assert not any(p["odom0_config"][:6]) and not any(p["odom1_config"][:6])
+    assert len(p["process_noise_covariance"]) == 225
+
+
+def test_generated_nav_params_follow_the_visual_pipeline(tmp_path):
+    import yaml
+
+    lu = _launch_utils()
+    source = {
+        "controller_server": {"ros__parameters": {
+            "controller_frequency": 20.0,
+            "FollowPath": {"plugin": "nav2_mppi_controller::MPPIController", "model_dt": 0.05,
+                           "time_steps": 56, "batch_size": 2000, "vx_min": -0.5,
+                           "PreferForwardCritic": {"cost_weight": 1.5}},
+        }},
+        "planner_server": {"ros__parameters": {"GridBased": {
+            "plugin": "nav2_smac_planner/SmacPlannerHybrid", "allow_unknown": False, "reverse_penalty": 1.5}}},
+        "local_costmap": {"local_costmap": {"ros__parameters": {
+            "plugins": ["static_layer", "voxel_layer", "inflation_layer"], "static_layer": {}, "voxel_layer": {}}}},
+        "global_costmap": {"global_costmap": {"ros__parameters": {
+            "plugins": ["static_layer", "obstacle_layer", "inflation_layer"], "obstacle_layer": {}}}},
+    }
+    path = tmp_path / "nav.yaml"
+    path.write_text(yaml.safe_dump(source), encoding="utf-8")
+    out = yaml.safe_load(Path(lu.write_visual_nav_params(str(path))).read_text(encoding="utf-8"))
+    controller = out["controller_server"]["ros__parameters"]
+    follow = controller["FollowPath"]
+    assert abs(1.0 / controller["controller_frequency"] - follow["model_dt"]) < 1e-9
+    assert follow["time_steps"] * follow["model_dt"] >= 2.5
+    assert follow["batch_size"] == 1000
+    assert follow["vx_min"] == -0.15
+    assert follow["PreferForwardCritic"]["cost_weight"] == 5.0
+    grid = out["planner_server"]["ros__parameters"]["GridBased"]
+    assert grid["allow_unknown"] is True and grid["reverse_penalty"] == 3.0
+    local = out["local_costmap"]["local_costmap"]["ros__parameters"]
+    assert local["plugins"] == ["voxel_layer", "inflation_layer"]
+    assert local["voxel_layer"]["depth_points"]["topic"] == "/vision/obstacles"
+    glob = out["global_costmap"]["global_costmap"]["ros__parameters"]
+    assert glob["plugins"][0] == "static_layer" and "obstacle_layer" not in glob["plugins"]

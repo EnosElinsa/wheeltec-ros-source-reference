@@ -18,6 +18,7 @@ setup(
         ]),
         ('share/' + package_name + '/config', [
             'config/baseline_qos_overrides.yaml',
+            'config/ekf_visual.yaml',
             'config/realsense_d435c.yaml',
             'config/rtabmap_visual.yaml',
             'config/vision_runtime.rviz',
@@ -39,6 +40,7 @@ setup(
             'emitter_pair = wheeltec_vision_nav.emitter_pair:main',
             'vo_watchdog = wheeltec_vision_nav.vo_watchdog:main',
             'capture_runtime = wheeltec_vision_nav.capture_runtime:main',
+            'inspect_map_db = wheeltec_vision_nav.inspect_map_db:main',
         ],
     },
 )

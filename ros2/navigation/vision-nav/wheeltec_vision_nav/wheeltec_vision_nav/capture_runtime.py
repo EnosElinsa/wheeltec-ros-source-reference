@@ -10,12 +10,12 @@ from datetime import datetime
 from pathlib import Path
 
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rcl_interfaces.srv import GetParameters
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import CameraInfo, Image, PointCloud2
 from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
 
@@ -62,9 +62,10 @@ TF_STATIC_QOS = QoSProfile(
 
 PARAM_QUERIES = (
     ("vision_rgbd_odometry", ("guess_frame_id", "publish_tf", "imu_topic", "frame_id")),
-    ("vision_rtabmap", ("database_path", "Mem/IncrementalMemory")),
-    ("controller_server", ("FollowPath.vx_min",)),
-    ("local_costmap/local_costmap", ("plugins", "static_layer.map_topic")),
+    ("vision_rtabmap", ("database_path", "Mem/IncrementalMemory", "odom_frame_id", "odom_tf_angular_variance")),
+    ("vision_ekf", ("odom0", "imu0", "odom1", "odom1_twist_rejection_threshold")),
+    ("controller_server", ("FollowPath.vx_min", "controller_frequency", "FollowPath.model_dt")),
+    ("local_costmap/local_costmap", ("plugins", "voxel_layer.depth_points.topic")),
     ("bt_navigator", ("default_nav_to_pose_bt_xml",)),
 )
 
@@ -83,6 +84,9 @@ class CaptureRuntime(Node):
         self._samples: dict = {}
         self._params: dict = {}
         self._tf_pairs: list[tuple[str, str]] = []
+        # /tf runs at ~120 Hz and would push the few /tf_static pairs out of
+        # the rolling list, so static pairs are kept separately.
+        self._tf_static_pairs: dict[str, str] = {}
         self._emitter_keys: list[str] = []
         self._images: list[str] = []
         self._saved: dict[str, int] = {}
@@ -101,8 +105,13 @@ class CaptureRuntime(Node):
         self.create_subscription(Twist, "/cmd_vel", self._on_cmd_vel, 10)
         self.create_subscription(Twist, "/cmd_vel_safe", self._on_cmd_vel_safe, 10)
         self.create_subscription(String, "/vision/vo_status", self._on_vo_status, 10)
+        self.create_subscription(String, "/vision/emitter_pair/status", self._on_emitter_status, 10)
+        self.create_subscription(PointCloud2, "/vision/obstacles", self._on_obstacles, BEST_EFFORT)
+        self.create_subscription(
+            PoseWithCovarianceStamped, "/rtabmap/localization_pose", self._on_localization, 10
+        )
         self.create_subscription(TFMessage, "/tf", self._on_tf, BEST_EFFORT)
-        self.create_subscription(TFMessage, "/tf_static", self._on_tf, TF_STATIC_QOS)
+        self.create_subscription(TFMessage, "/tf_static", self._on_tf_static, TF_STATIC_QOS)
         if RGBDImage is not None:
             self.create_subscription(RGBDImage, "/rtabmap/rgbd_image", self._on_rgbd, BEST_EFFORT)
         if OdomInfo is not None:
@@ -292,12 +301,40 @@ class CaptureRuntime(Node):
         self._mark("/vision/vo_status")
         self._samples["vo_status"] = msg.data
 
+    def _on_emitter_status(self, msg: String) -> None:
+        self._mark("/vision/emitter_pair/status")
+        try:
+            self._samples["emitter_pair"] = json.loads(msg.data)
+        except json.JSONDecodeError:
+            self._samples["emitter_pair"] = msg.data
+
+    def _on_obstacles(self, msg: PointCloud2) -> None:
+        self._mark("/vision/obstacles")
+        self._samples["obstacles"] = {
+            "frame_id": msg.header.frame_id,
+            "points": int(msg.width) * int(msg.height),
+        }
+
+    def _on_localization(self, msg: PoseWithCovarianceStamped) -> None:
+        self._mark("/rtabmap/localization_pose")
+        p = msg.pose.pose.position
+        self._samples["localization_pose"] = {
+            "frame_id": msg.header.frame_id,
+            "x": p.x,
+            "y": p.y,
+            "covariance0": msg.pose.covariance[0],
+        }
+
     def _on_tf(self, msg: TFMessage) -> None:
         self._mark("/tf")
         for item in msg.transforms:
             self._tf_pairs.append((item.header.frame_id, item.child_frame_id))
         if len(self._tf_pairs) > 400:
             self._tf_pairs = self._tf_pairs[-400:]
+
+    def _on_tf_static(self, msg: TFMessage) -> None:
+        for item in msg.transforms:
+            self._tf_static_pairs[item.child_frame_id] = item.header.frame_id
 
     def _on_metadata(self, msg) -> None:
         self._mark("/camera/metadata")
@@ -345,7 +382,9 @@ class CaptureRuntime(Node):
     def _write_summary(self) -> None:
         parts = dict(self._samples)
         parts["params"] = dict(self._params)
-        parts["tf_parents"] = tf_parents(self._tf_pairs)
+        parents = dict(self._tf_static_pairs)
+        parents.update(tf_parents(self._tf_pairs))
+        parts["tf_parents"] = parents
         parts["hz"] = self._hz_map()
         parts["emitter_keys"] = list(self._emitter_keys)
         parts["images"] = list(self._images)

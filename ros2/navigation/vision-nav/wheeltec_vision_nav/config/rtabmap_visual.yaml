@@ -14,7 +14,9 @@ vision_rgbd_odometry:
     Vis/MinInliers: "10"
     Vis/MaxFeatures: "1500"
     Vis/MinDepth: "0.20"
-    Vis/MaxDepth: "4.0"
+    # D435 depth error grows with the square of the distance; beyond 3.5 m the
+    # points add more noise than constraint.
+    Vis/MaxDepth: "3.5"
     # 6 = GFTT/BRIEF. Left IR has no color, so keep corner features.
     Vis/FeatureType: "6"
 
@@ -28,15 +30,24 @@ vision_rtabmap:
     RGBD/ProximityBySpace: "true"
     # Neighbor ICP asks for a laser scan that RGB-D nodes do not carry.
     RGBD/NeighborLinkRefining: "false"
+    # Reject a loop closure whose graph error exceeds 3 standard deviations.
+    # This only works because odometry links now carry a finite heading
+    # variance (odom_tf_*_variance in launch); with the chassis' 1e3 rad^2 any
+    # closure looked consistent.
     RGBD/OptimizeMaxError: "3"
     # 0 = appearance. Strategy 2 runs scan ICP; RGB-D nodes have no laser.
     Reg/Strategy: "0"
     Reg/Force3DoF: "true"
+    # A loop closure or proximity link needs 20 inlier features.
+    Vis/MinInliers: "20"
+    Vis/FeatureType: "6"
+    Vis/MinDepth: "0.20"
+    Vis/MaxDepth: "3.5"
     Grid/FromDepth: "true"
     Grid/Sensor: "1"
     Grid/3D: "false"
     Grid/RangeMin: "0.20"
-    Grid/RangeMax: "4.5"
+    Grid/RangeMax: "3.5"
     Grid/CellSize: "0.05"
     # Ground vs obstacle by surface normal, then by height. A camera pitched a
     # little up or down still classifies the floor as free this way.

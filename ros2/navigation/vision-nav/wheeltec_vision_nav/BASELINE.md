@@ -6,7 +6,7 @@
 
 ## 安全
 
-人员站在车旁，急停可立即按下。第一次让轮子受控前按 [`docs/rough-guide.md`](../../docs/rough-guide.md) 第 1 节检查电源、使能、电压与净空。本基线默认**不发 `/cmd_vel`**。
+人员站在车旁，急停可立即按下。第一次让轮子受控前检查电源、电机使能、电池电压与车周净空。本基线默认**不发 `/cmd_vel`**。
 
 ## 会话 V：视觉 + 底盘（IMU / 轮速）
 
@@ -52,7 +52,7 @@ ros2 run wheeltec_vision_nav check_baseline --session vision_base --live --secon
 
 警告项（不单独判失败）：手推有纹理墙面时 `/odom_info_lite` 的 `lost` 比例应低（默认门槛 10%）、内点中位数应大于 20、848×480 红外应 ≥ 10 Hz（掉下去则考虑改回 640×480）、`start_base:=true` 时 `/tf` 上应有 `odom`→`base_footprint`，以及作为逆变换的 `base_footprint`→`wheel_odom`（不要出现 `wheel_odom` 作为 `base_footprint` 的父系）。静止无纹理时允许跟丢，但应在有纹理墙面再补一段。
 
-需要 VO 质量时：保持同一套话题，车**缓慢手推**前把 `start_base` 改回 `false` 另录一包 `session:=vision`。带底盘猜测的建图用 `start_base:=true` 或 `use_wheel_guess:=true`，此时轮速 TF 是 `base_footprint`→`wheel_odom`（逆），`odom`→`base_footprint` 由 `vision_hold_odom_tf` 根据 `/odom` 发布。
+需要 VO 质量时：保持同一套话题，车**缓慢手推**前把 `start_base` 改回 `false` 另录一包 `session:=vision`。带底盘猜测的建图用 `start_base:=true` 或 `use_wheel_guess:=true`，此时轮速 TF 是 `base_footprint`→`wheel_odom`（逆），`odom`→`base_footprint` 与 `/odom` 由 EKF（`vision_ekf`）融合轮速、陀螺仪与视觉里程计后发布。
 
 ## 会话 L：M10P 扫描
 
