@@ -17,7 +17,8 @@ or the factory RTAB-Map launch files.
 | Keep speckle-free infrared, pair it with the adjacent projected depth | **`emitter_pair`** (this package) | classifies each frame as projector on/off from the infrared bright-dot density and the depth fill ratio, because this D435C's metadata carries no emitter state |
 | One RGB-D message (`/rtabmap/rgbd_image`) | `rtabmap_sync/rgbd_sync` | remappings |
 | Visual odometry (`/odom_vo`) | `rtabmap_odom/rgbd_odometry` | GFTT/BRIEF, wheel pose as motion guess |
-| Fused odometry (`/odom`, `odom → base_footprint`) | `robot_localization/ekf_node` | `config/ekf_visual.yaml`: wheel vx/vy/vyaw, chassis gyro yaw rate, VO velocity with 3σ rejection |
+| Gyro without bias (`/vision/imu`), VO velocity with realistic variance (`/vision/odom_vo`) | **`ekf_inputs`** (this package) | learns the gyro yaw-rate bias while the wheels stand still; lower bound on the VO twist variances |
+| Fused odometry (`/odom`, `odom → base_footprint`) | `robot_localization/ekf_node` | `config/ekf_visual.yaml`: wheel vx/vy/vyaw, gyro yaw rate, VO velocity with 3σ rejection |
 | Map, loop closure, localization (`/map`, `map → odom`) | `rtabmap_slam/rtabmap` | `config/rtabmap_visual.yaml`; odometry read from TF with fixed variances |
 | Local obstacles (`/vision/obstacles`) | `rtabmap_util/point_cloud_xyz` + `obstacles_detection` | fed from the paired depth |
 | Planning and control | Nav2 (Smac Hybrid-A*, MPPI) | `write_visual_nav_params`, Ackermann behavior tree |
