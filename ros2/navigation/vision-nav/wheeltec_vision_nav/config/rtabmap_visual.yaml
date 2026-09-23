@@ -1,0 +1,59 @@
+# RTAB-Map visual odometry / SLAM / occupancy-grid parameters.
+# Runtime fields (database_path, Mem/IncrementalMemory, subscribe_*, guess_frame_id)
+# stay in launch.
+vision_rgbd_odometry:
+  ros__parameters:
+    Odom/Strategy: "0"
+    Odom/FillInfoData: "true"
+    # Reset after one lost frame. With guess_frame_id=wheel_odom the odometry
+    # continues from the latest pose using the wheel prior, so a short loss
+    # (glare, blank wall) no longer freezes /odom_vo until the car is pushed.
+    Odom/ResetCountdown: "1"
+    Vis/EstimationType: "1"
+    Odom/GuessMotion: "true"
+    Vis/MinInliers: "10"
+    Vis/MaxFeatures: "1500"
+    Vis/MinDepth: "0.20"
+    Vis/MaxDepth: "4.0"
+    # 6 = GFTT/BRIEF. Left IR has no color, so keep corner features.
+    Vis/FeatureType: "6"
+
+vision_rtabmap:
+  ros__parameters:
+    # Two map updates per second: more nodes along the path, denser grid
+    # coverage of the floor and fewer gaps between consecutive local grids.
+    Rtabmap/DetectionRate: "2"
+    RGBD/LinearUpdate: "0.05"
+    RGBD/AngularUpdate: "0.05"
+    RGBD/ProximityBySpace: "true"
+    # Neighbor ICP asks for a laser scan that RGB-D nodes do not carry.
+    RGBD/NeighborLinkRefining: "false"
+    RGBD/OptimizeMaxError: "3"
+    # 0 = appearance. Strategy 2 runs scan ICP; RGB-D nodes have no laser.
+    Reg/Strategy: "0"
+    Reg/Force3DoF: "true"
+    Grid/FromDepth: "true"
+    Grid/Sensor: "1"
+    Grid/3D: "false"
+    Grid/RangeMin: "0.20"
+    Grid/RangeMax: "4.5"
+    Grid/CellSize: "0.05"
+    # Ground vs obstacle by surface normal, then by height. A camera pitched a
+    # little up or down still classifies the floor as free this way.
+    Grid/NormalsSegmentation: "true"
+    Grid/MaxGroundAngle: "30"
+    Grid/MinGroundHeight: "-0.10"
+    Grid/MaxGroundHeight: "0.10"
+    Grid/MaxObstacleHeight: "1.80"
+    Grid/RayTracing: "true"
+    # Sparse floor returns are legitimate: keep clusters of 3 within 5 cm.
+    Grid/NoiseFilteringRadius: "0.05"
+    Grid/NoiseFilteringMinNeighbors: "3"
+    # Points on the car itself (bumper, front plate) must not become obstacles.
+    Grid/FootprintLength: "0.5"
+    Grid/FootprintWidth: "0.4"
+    Grid/FootprintHeight: "0.3"
+    # Assembled /map: erode single-cell obstacles and clear the footprint of
+    # every node pose, so the path the car actually drove is free.
+    GridGlobal/Eroded: "true"
+    GridGlobal/FootprintRadius: "0.25"

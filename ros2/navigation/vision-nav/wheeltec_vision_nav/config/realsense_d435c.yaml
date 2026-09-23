@@ -1,0 +1,5 @@
+# Parameters that Humble rs_launch.py does not declare as launch arguments.
+# rs_launch loads this file via config_file and merges it into the camera node.
+# The driver roots its TF tree at <camera_name>_link = camera_link; the URDF
+# camera_joint (rewritten by launch_utils.model_actions) places that frame.
+depth_module.emitter_on_off: true

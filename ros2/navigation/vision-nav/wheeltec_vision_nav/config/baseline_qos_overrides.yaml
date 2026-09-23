@@ -1,0 +1,35 @@
+/camera/infra1/image_rect_raw:
+  history: keep_last
+  depth: 10
+  reliability: best_effort
+  durability: volatile
+/camera/depth/image_rect_raw:
+  history: keep_last
+  depth: 10
+  reliability: best_effort
+  durability: volatile
+/rtabmap/rgbd_image:
+  history: keep_last
+  depth: 10
+  reliability: best_effort
+  durability: volatile
+/odom:
+  history: keep_last
+  depth: 20
+  reliability: best_effort
+  durability: volatile
+/odom_info_lite:
+  history: keep_last
+  depth: 20
+  reliability: best_effort
+  durability: volatile
+/imu/data_raw:
+  history: keep_last
+  depth: 50
+  reliability: best_effort
+  durability: volatile
+/wheel/odom:
+  history: keep_last
+  depth: 20
+  reliability: best_effort
+  durability: volatile
