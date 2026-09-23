@@ -3,14 +3,21 @@
 #
 # Wheel odometry (turn_on_wheeltec_robot) reports variance 1e-3 for vx/vy while
 # moving and 1e3 for the yaw rate, which comes from the Ackermann steering
-# model. Standing still, both drop to 1e-9. Fusing vyaw from the wheels
-# therefore pins the yaw rate to zero only while the car stands still, which
-# removes gyro drift at rest. While moving the gyro (variance 1e-6) decides.
+# model. Standing still, both drop to 1e-9, which holds the yaw rate at zero.
+# The gyro and VO inputs go through ekf_inputs first: the gyro bias is removed
+# (variance 1e-5) and the VO twist variances get a lower bound, because
+# robot_localization uses each message's covariance as given.
 vision_ekf:
   ros__parameters:
     frequency: 30.0
     sensor_timeout: 0.2
     two_d_mode: true
+    # Pose process noise scales with the estimated speed.
+    dynamic_process_noise_covariance: true
+    # Process noise scales with the velocity estimate. Standing still it is
+    # close to zero, so the gyro bias cannot pull the yaw rate away from the
+    # wheels' zero between two wheel samples.
+    dynamic_process_noise_covariance: true
     publish_tf: true
     print_diagnostics: false
     map_frame: map
@@ -28,7 +35,7 @@ vision_ekf:
     odom0_queue_size: 10
     odom0_differential: false
 
-    imu0: /imu/data_raw
+    imu0: /vision/imu
     imu0_config: [false, false, false,
                   false, false, false,
                   false, false, false,
@@ -41,7 +48,7 @@ vision_ekf:
     # Visual odometry velocity. Samples more than 3 standard deviations away
     # from the current estimate (Mahalanobis distance) are rejected, so a
     # frame registered on repeated texture does not bend /odom.
-    odom1: /odom_vo
+    odom1: /vision/odom_vo
     odom1_config: [false, false, false,
                    false, false, false,
                    true,  false, false,

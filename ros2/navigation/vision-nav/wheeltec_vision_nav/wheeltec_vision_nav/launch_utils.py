@@ -201,6 +201,7 @@ def camera_cleanup_action():
             "pkill -f 'lib/wheeltec_vision_nav/wheel_odom_t[f]' || true; "
             "pkill -f 'lib/wheeltec_vision_nav/capture_runtim[e]' || true; "
             "pkill -f '/opt/ros/humble/lib/robot_localization/ekf_nod[e]' || true; "
+            "pkill -f 'lib/wheeltec_vision_nav/ekf_input[s]' || true; "
             "pkill -f '/opt/ros/humble/lib/rtabmap_util/point_cloud_xy[z]' || true; "
             "pkill -f '/opt/ros/humble/lib/rtabmap_util/obstacles_detectio[n]' || true; "
             "pkill -f '__node:=vision_joint_state_publishe[r]' || true; "
@@ -435,6 +436,16 @@ def wheel_odom_tf_node(condition=None):
     return Node(**kwargs)
 
 
+def ekf_inputs_node():
+    """Gyro without bias on /vision/imu, VO velocity with realistic variance on /vision/odom_vo."""
+    return Node(
+        package="wheeltec_vision_nav",
+        executable="ekf_inputs",
+        name="vision_ekf_inputs",
+        output="screen",
+    )
+
+
 def ekf_node(condition=None):
     """Fuse wheel speed, gyro yaw rate and VO velocity into /odom and odom -> base_footprint."""
     kwargs = {
@@ -595,6 +606,7 @@ def visual_runtime_actions(
             isolated_base_node(connect_base_footprint=True, cmd_vel_topic=cmd_vel_topic)
         )
         actions.append(wheel_odom_tf_node())
+        actions.append(ekf_inputs_node())
         actions.append(ekf_node())
     else:
         actions.append(hold_odom_tf_node())

@@ -41,6 +41,7 @@ setup(
             'vo_watchdog = wheeltec_vision_nav.vo_watchdog:main',
             'capture_runtime = wheeltec_vision_nav.capture_runtime:main',
             'inspect_map_db = wheeltec_vision_nav.inspect_map_db:main',
+            'ekf_inputs = wheeltec_vision_nav.ekf_inputs:main',
         ],
     },
 )

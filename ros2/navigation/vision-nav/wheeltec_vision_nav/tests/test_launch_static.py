@@ -328,6 +328,7 @@ def test_chassis_run_gives_odom_to_the_ekf():
     actions = lu.visual_runtime_actions("/tmp/x.db", localization=True, start_base=True, hold_odom=False)
     names = _executables(actions)
     assert "ekf_node" in names
+    assert "ekf_inputs" in names
     assert "hold_odom_tf" not in names
     assert "imu_filter_madgwick_node" not in names
     assert {"point_cloud_xyz", "obstacles_detection", "vo_watchdog"} <= set(names)
@@ -357,9 +358,9 @@ def test_ekf_config_fuses_wheel_gyro_and_vo_velocity():
     vx, vy, vyaw = 6, 7, 11
     assert p["odom0"] == "/wheel/odom"
     assert p["odom0_config"][vx] and p["odom0_config"][vy] and p["odom0_config"][vyaw]
-    assert p["imu0"] == "/imu/data_raw" and p["imu0_config"][vyaw]
+    assert p["imu0"] == "/vision/imu" and p["imu0_config"][vyaw]
     assert sum(p["imu0_config"]) == 1
-    assert p["odom1"] == "/odom_vo" and p["odom1_config"][vx] and p["odom1_config"][vyaw]
+    assert p["odom1"] == "/vision/odom_vo" and p["odom1_config"][vx] and p["odom1_config"][vyaw]
     assert p["odom1_twist_rejection_threshold"] > 0
     assert not any(p["odom0_config"][:6]) and not any(p["odom1_config"][:6])
     assert len(p["process_noise_covariance"]) == 225
