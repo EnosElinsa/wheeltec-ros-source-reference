@@ -28,7 +28,8 @@ def test_runtime_has_one_odometry_owner_and_always_gates_actuation(launch_utils,
     assert ("ekf_node" in nodes) is (resolved == "ekf")
     assert ("hold_odom_tf" in nodes) is (resolved == "vo_only")
     assert not {"ekf_node", "hold_odom_tf"} <= nodes.keys()
-    assert {"depth_validity_gate", "point_cloud_xyz", "obstacles_detection", "vo_watchdog"} <= nodes.keys()
+    assert {"depth_validity_gate", "point_cloud_xyz", "obstacles_detection", "vo_watchdog", "tf_authority_guard"} <= nodes.keys()
+    assert nodes["tf_authority_guard"]["parameters"][0]["require_map"] is localization
     guard = nodes["vo_watchdog"]["parameters"][0]
     assert guard["mode"] == ("navigation" if localization else "mapping")
     assert guard["wheel_backup"] is (resolved == "ekf")

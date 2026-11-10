@@ -43,7 +43,7 @@ def test_startup_without_evidence_is_fail_closed():
     assert result.state == INITIALIZING and result.vx == 0
 
 
-@pytest.mark.parametrize("source", ["wheel", "imu", "odom", "depth", "cloud", "obstacles", "tf", "ownership", "localization", "map_tf"])
+@pytest.mark.parametrize("source", ["wheel", "imu", "odom", "depth", "cloud", "obstacles", "tf", "tf_authority", "ownership", "localization", "map_tf"])
 def test_critical_failure_stops_even_with_healthy_vo(source):
     controller, now = ready()
     assert drive(controller, now).vx > 0

@@ -292,7 +292,7 @@ class SafetyController:
         return True
 
     def _required(self):
-        required = ["odom", "tf", "ownership"]
+        required = ["odom", "tf", "tf_authority", "ownership"]
         if self.cfg.require_depth:
             required += ["depth", "cloud", "obstacles"]
         if self.cfg.wheel_backup or self.cfg.supervised_reverse:

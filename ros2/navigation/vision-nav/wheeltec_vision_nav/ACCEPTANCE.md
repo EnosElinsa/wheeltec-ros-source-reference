@@ -31,7 +31,7 @@ Ubuntu 22.04 上加载 Humble 与现有 WHEELTEC 依赖，在专用 workspace �
 ```bash
 source /opt/ros/humble/setup.bash
 source /home/wheeltec/wheeltec_ros2/install/setup.bash
-colcon build --packages-select wheeltec_vision_nav
+colcon build --packages-select wheeltec_tf_guard wheeltec_vision_nav
 source install/setup.bash
 ros2 pkg executables wheeltec_vision_nav
 export ROS_DOMAIN_ID=93
@@ -40,7 +40,7 @@ export WHEELTEC_RUN_ROS_TESTS=1
 python3 -m pytest -q /源码仓库/ros2/navigation/vision-nav/wheeltec_vision_nav/tests/test_ros_runtime.py
 ```
 
-合成测试实际创建 ROS 消息、QoS、TF、指令出口和取消服务，验证就绪放行、点云断流零速及目标锁存。还需在目标系统核验完整 RealSense/RTAB-Map/Nav2 插件、QoS 和状态发布语义：
+合成测试实际创建 ROS 消息、QoS、TF、指令出口和取消服务，验证就绪放行、点云断流零速及目标锁存。配套 `wheeltec_tf_guard` 使用 Humble C++ 接口读取真实 TF 发布者 ID，验证重复发布者、错误父坐标系和监测节点退出；运行记录测试验证 ROS 数据年龄及参数快照。该包必须与 Python 包一起构建，缺失或监测状态停发时看门狗不放行。还需在目标系统核验完整 RealSense/RTAB-Map/Nav2 插件、QoS 和状态发布语义：
 
 - `/odom` 与 `odom → base_footprint` 唯一发布者，导航 `map → odom` 由 RTAB-Map 发布。
 - `controller_server` 与 `behavior_server` 只输出 `/cmd_vel_nav`，平滑器输出 `/cmd_vel`，底盘只订阅 `/cmd_vel_safe`；Ackermann 旁路被关闭。

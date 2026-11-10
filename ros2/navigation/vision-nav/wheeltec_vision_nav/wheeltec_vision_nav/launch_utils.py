@@ -11,6 +11,7 @@ from wheeltec_vision_nav.launch_nodes import (
 from wheeltec_vision_nav.nav_params import bundled_runtime_config
 from wheeltec_vision_nav.nav_params import write_visual_nav_params as _write_visual_nav_params
 from wheeltec_vision_nav.runtime_config import resolve_odom_source, safety_parameters
+from launch_ros.actions import Node
 
 
 def camera_stack(extra_actions, stereo="false", camera_profile="848x480x30"):
@@ -44,6 +45,10 @@ def visual_runtime_actions(database_path, localization, start_base, hold_odom=Fa
     elif source == "vo_only":
         actions.append(hold_odom_tf_node())
     actions.extend(depth_obstacle_nodes(decimation=perception["cloud_decimation"], safety=safe))
+    actions.append(Node(package="wheeltec_tf_guard", executable="tf_authority_guard",
+                        name="vision_tf_authority", output="screen", parameters=[{
+                            "require_map": bool(localization), "author_timeout_s": safe["map_stale_s"],
+                        }]))
     actions.append(vo_watchdog_node(wheel_backup=safe["wheel_backup"], safety=safe))
     return actions
 

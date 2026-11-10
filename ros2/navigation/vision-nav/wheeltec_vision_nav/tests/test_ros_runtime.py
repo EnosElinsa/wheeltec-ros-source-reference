@@ -5,6 +5,9 @@ Opt in with WHEELTEC_RUN_ROS_TESTS=1 and an isolated nonzero ROS_DOMAIN_ID.
 import csv
 import json
 import os
+from pathlib import Path
+import signal
+import subprocess
 import time
 
 import pytest
@@ -16,6 +19,8 @@ if os.environ.get("WHEELTEC_RUN_ROS_TESTS") != "1" or os.environ.get("ROS_DOMAIN
 rclpy = pytest.importorskip("rclpy")
 from action_msgs.srv import CancelGoal
 from action_msgs.msg import GoalStatus, GoalStatusArray
+from ament_index_python.packages import get_package_prefix
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
 from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.duration import Duration
@@ -42,7 +47,23 @@ def spin_until(executor, condition, timeout=7):
     raise AssertionError("ROS condition timed out")
 
 
-def test_real_qos_tf_motion_gate_sensor_silence_cancellation_and_shutdown():
+@pytest.fixture
+def tf_guard():
+    executable = Path(get_package_prefix("wheeltec_tf_guard")) / "lib/wheeltec_tf_guard/tf_authority_guard"
+    process = subprocess.Popen([str(executable), "--ros-args", "-p", "author_timeout_s:=1.0"])
+    try:
+        yield process
+    finally:
+        if process.poll() is None:
+            process.send_signal(signal.SIGINT)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+
+
+def test_real_qos_tf_motion_gate_sensor_silence_cancellation_and_shutdown(tf_guard):
     rclpy.init(args=["--ros-args", "-p", "mode:=navigation", "-p", "wheel_backup:=false",
                     "-p", "map_stale_s:=0.4"])
     watchdog = VoWatchdog()
@@ -161,6 +182,13 @@ def test_real_qos_tf_motion_gate_sensor_silence_cancellation_and_shutdown():
         spin_until(executor, lambda: health[-1]["state"] == "STOPPED"
                    and health[-1]["reason"] == "map_tf_invalid_or_stale")
         assert outputs[-1][1] == 0
+        send_map_tf[0] = True
+        spin_until(executor, lambda: health[-1]["state"] == "READY")
+        tf_guard.send_signal(signal.SIGINT)
+        tf_guard.wait(timeout=5)
+        spin_until(executor, lambda: health[-1]["state"] == "STOPPED"
+                   and health[-1]["reason"] in ("tf_authority_invalid_or_stale", "ownership_invalid_or_stale"))
+        assert outputs[-1][1] == 0
     finally:
         executor.remove_node(watchdog)
         watchdog.destroy_node()
@@ -265,3 +293,48 @@ def test_real_monitor_records_ros_age_and_effective_parameters(tmp_path):
     with (monitor.directory / "odometry.csv").open(newline="") as stream:
         samples = list(csv.DictReader(stream))
     assert samples and all(.04 <= float(row["latency_s"]) < .3 for row in samples)
+
+
+def test_real_tf_guard_detects_duplicate_publishers_and_wrong_parent(tf_guard):
+    rclpy.init()
+    sensors = Node("vision_test_tf_owner")
+    duplicate = Node("vision_test_tf_duplicate")
+    executor = SingleThreadedExecutor()
+    executor.add_node(sensors)
+    executor.add_node(duplicate)
+    broadcaster = TransformBroadcaster(sensors)
+    other = TransformBroadcaster(duplicate)
+    reports = []
+    sensors.create_subscription(DiagnosticArray, "/vision/tf_authority", reports.append, 2)
+    send_duplicate, wrong_parent = [False], [False]
+
+    def publish():
+        now = sensors.get_clock().now().to_msg()
+        odom = TransformStamped()
+        odom.header = Header(stamp=now, frame_id="odom")
+        odom.child_frame_id = "base_footprint"
+        odom.transform.rotation.w = 1.
+        mapping = TransformStamped()
+        mapping.header = Header(stamp=now, frame_id="wrong" if wrong_parent[0] else "map")
+        mapping.child_frame_id = "odom"
+        mapping.transform.rotation.w = 1.
+        broadcaster.sendTransform([odom, mapping])
+        if send_duplicate[0]:
+            other.sendTransform(odom)
+
+    sensors.create_timer(.05, publish)
+    healthy = lambda: reports and reports[-1].status[0].level == DiagnosticStatus.OK
+    try:
+        spin_until(executor, healthy)
+        send_duplicate[0] = True
+        spin_until(executor, lambda: not healthy())
+        send_duplicate[0] = False
+        spin_until(executor, healthy)
+        wrong_parent[0] = True
+        spin_until(executor, lambda: not healthy())
+    finally:
+        for node in (sensors, duplicate):
+            executor.remove_node(node)
+            node.destroy_node()
+        executor.shutdown()
+        rclpy.shutdown()

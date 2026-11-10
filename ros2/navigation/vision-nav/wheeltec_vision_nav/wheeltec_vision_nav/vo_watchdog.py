@@ -28,7 +28,6 @@ from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
-from tf2_msgs.msg import TFMessage
 
 from wheeltec_vision_nav.runtime_safety import (
     DEGRADED, READY, Cancellation, GoalAcceptanceBoundary, SafetyConfig, SafetyController,
@@ -76,7 +75,6 @@ class VoWatchdog(Node):
         self._blocked_goals = set()
         self._fault_episode = False
         self._goal_boundary = GoalAcceptanceBoundary()
-        self._tf_authors = {}
         self._last_graph_check = -1.0
         self._ownership_valid = False
         self._cancellations = {}
@@ -98,7 +96,7 @@ class VoWatchdog(Node):
         self.create_subscription(Image, "/camera/depth/image_rect_raw", self._on_depth, qos)
         self.create_subscription(PointCloud2, "/vision/depth_cloud", lambda m: self._on_cloud(m, "cloud"), qos)
         self.create_subscription(PointCloud2, "/vision/obstacles", lambda m: self._on_cloud(m, "obstacles"), qos)
-        self.create_subscription(TFMessage, "/tf", self._on_tf_authority, qos)
+        self.create_subscription(DiagnosticArray, "/vision/tf_authority", self._on_tf_authority, qos)
         if self._cfg.wheel_backup or self._cfg.supervised_reverse:
             self.create_subscription(Odometry, "/wheel/odom", self._on_wheel, qos)
         if self._cfg.wheel_backup:
@@ -186,13 +184,10 @@ class VoWatchdog(Node):
         # Evaluate immediately as well as on the independent 20 Hz timer.
         self._tick()
 
-    def _on_tf_authority(self, msg, info):
-        now = time.monotonic()
-        author = bytes(info.publisher_gid)
-        for transform in msg.transforms:
-            if transform.child_frame_id in ("base_footprint", "odom"):
-                self._tf_authors.setdefault(transform.child_frame_id, {})[author] = (
-                    transform.header.frame_id, now)
+    def _on_tf_authority(self, msg):
+        self._note("tf_authority", msg, len(msg.status) == 1
+                   and msg.status[0].name == "vision/tf_authority"
+                   and msg.status[0].level == DiagnosticStatus.OK)
 
     def _on_goals(self, msg):
         ros_now = self.get_clock().now().nanoseconds
@@ -256,15 +251,8 @@ class VoWatchdog(Node):
         if now - self._last_graph_check >= .2:
             self._last_graph_check = now
             self._ownership_valid = all(len(self.get_publishers_info_by_topic(topic)) == 1
-                                         for topic in ("/odom", "/cmd_vel_safe"))
-        tf_owners_valid = True
-        for child, authors in self._tf_authors.items():
-            current = {gid: data for gid, data in authors.items() if now - data[1] < 1.0}
-            self._tf_authors[child] = current
-            parent = "odom" if child == "base_footprint" else "map"
-            tf_owners_valid = tf_owners_valid and len(current) <= 1 and all(
-                item[0] == parent for item in current.values())
-        self.safety.note("ownership", ros_now, now, valid=self._ownership_valid and tf_owners_valid)
+                                         for topic in ("/odom", "/cmd_vel_safe", "/vision/tf_authority"))
+        self.safety.note("ownership", ros_now, now, valid=self._ownership_valid)
         clearance, observed, age = 0.0, 0.0, 0.0
         try:
             transform = self._tf.lookup_transform("base_footprint", "odom", Time())

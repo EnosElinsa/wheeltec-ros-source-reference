@@ -4,6 +4,8 @@ WHEELTEC R680（`senior_akm`）的 D435C 视觉建图、定位与 Nav2 导航。
 
 源码位于 `ros2/navigation/vision-nav/wheeltec_vision_nav`。车上构建到 `/home/wheeltec/vision_ws`，每个终端先加载 `source_overlay.bash`。此轮本地软件验证与待执行验收见 [IMPLEMENTATION.md](IMPLEMENTATION.md)，实车协议见 [ACCEPTANCE.md](ACCEPTANCE.md)。
 
+Humble 的 TF 发布者身份检查由相邻的 `wheeltec_tf_guard` C++ 包提供；两个包需同时放入工作区并执行 `colcon build --packages-select wheeltec_tf_guard wheeltec_vision_nav`。启动入口自动启动监测节点，`/vision/tf_authority` 无效、停发或多发布者时不放行。Python 标准回调无法在 Humble 获取发布者 ID，不能删除该节点来绕过检查。
+
 ## 数据与速度链路
 
 | 链路 | 行为 |
