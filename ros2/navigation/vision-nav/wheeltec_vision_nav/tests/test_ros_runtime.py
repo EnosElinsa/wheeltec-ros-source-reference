@@ -2,6 +2,7 @@
 
 Opt in with WHEELTEC_RUN_ROS_TESTS=1 and an isolated nonzero ROS_DOMAIN_ID.
 """
+import csv
 import json
 import os
 import time
@@ -29,6 +30,7 @@ from tf2_ros import TransformBroadcaster
 
 from wheeltec_vision_nav.vo_watchdog import VoWatchdog
 from wheeltec_vision_nav.depth_validity_gate import DepthValidityGate
+from wheeltec_vision_nav.runtime_monitor import RuntimeMonitor
 
 
 def spin_until(executor, condition, timeout=7):
@@ -223,3 +225,43 @@ def test_real_depth_gate_preserves_exact_pairs_and_suppresses_emitter_off_frames
         sensors.destroy_node()
         executor.shutdown()
         rclpy.shutdown()
+
+
+def test_real_monitor_records_ros_age_and_effective_parameters(tmp_path):
+    rclpy.init(args=["--ros-args", "-p", f"output_dir:={tmp_path}"])
+    monitor = RuntimeMonitor()
+    sensors = Node("vision_ekf_inputs")
+    sensors.declare_parameter("test_gain", .125)
+    executor = SingleThreadedExecutor()
+    executor.add_node(monitor)
+    executor.add_node(sensors)
+    publisher = sensors.create_publisher(Odometry, "/odom", 2)
+
+    def publish():
+        msg = Odometry()
+        msg.header = Header(stamp=(sensors.get_clock().now() - Duration(seconds=.05)).to_msg(),
+                            frame_id="odom")
+        msg.child_frame_id = "base_footprint"
+        msg.pose.pose.orientation.w = 1.
+        publisher.publish(msg)
+
+    sensors.create_timer(.05, publish)
+    try:
+        # The steady timer must not replace the Node's ROS clock.
+        assert abs(monitor.get_clock().now().nanoseconds - sensors.get_clock().now().nanoseconds) < 100_000_000
+        snapshot = monitor.directory / "effective_parameters.json"
+        spin_until(executor, lambda: snapshot.is_file()
+                   and "vision_ekf_inputs" in json.loads(snapshot.read_text()))
+        parameters = json.loads(snapshot.read_text())["vision_ekf_inputs"]
+        assert parameters["test_gain"]["double_value"] == .125
+        spin_until(executor, lambda: (monitor.directory / "odometry.csv").stat().st_size > 100)
+    finally:
+        executor.remove_node(monitor)
+        monitor.destroy_node()
+        executor.remove_node(sensors)
+        sensors.destroy_node()
+        executor.shutdown()
+        rclpy.shutdown()
+    with (monitor.directory / "odometry.csv").open(newline="") as stream:
+        samples = list(csv.DictReader(stream))
+    assert samples and all(.04 <= float(row["latency_s"]) < .3 for row in samples)

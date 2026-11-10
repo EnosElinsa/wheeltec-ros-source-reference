@@ -95,7 +95,7 @@ def node_for(adapter):
     node._seen_goals, node._blocked_goals = set(), set()
     node._goal_boundary = GoalAcceptanceBoundary()
     node._fault_episode = False
-    node._cancellations, node._clients, node._cancel_futures = {}, {}, {}
+    node._cancellations, node._cancel_clients, node._cancel_futures = {}, {}, {}
     node._cloud_max_points = 100000
     node._clouds = {
         "cloud": np.array([(x, y / 100., 0.) for x in (1., 1.5, 2.) for y in range(-200, 201, 5)]),

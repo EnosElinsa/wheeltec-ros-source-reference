@@ -83,8 +83,8 @@ class RuntimeMonitor(Node):
         self.create_subscription(TFMessage, "/tf", self._map_tf, qos)
         for topic in ("/cmd_vel", "/cmd_vel_nav", "/cmd_vel_smoothed", "/cmd_vel_safe"):
             self.create_subscription(Twist, topic, lambda msg, t=topic: self._command(t, msg), 5)
-        self._clock = Clock(clock_type=ClockType.STEADY_TIME)
-        self.create_timer(1.0, self._tick, clock=self._clock)
+        self._steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
+        self.create_timer(1.0, self._tick, clock=self._steady_clock)
         self.get_logger().info(f"runtime evidence: {self.directory}")
 
     def _write_manifest(self):
@@ -201,11 +201,11 @@ class RuntimeMonitor(Node):
         try:
             keys = future.result().result.names
             result = getter.call_async(GetParameters.Request(names=keys))
-            result.add_done_callback(lambda f: self._parameters(f, name, keys))
+            result.add_done_callback(lambda f: self._on_parameter_values(f, name, keys))
         except Exception:
             self._requested.discard(name)
 
-    def _parameters(self, future, name, keys):
+    def _on_parameter_values(self, future, name, keys):
         try:
             from rosidl_runtime_py.convert import message_to_ordereddict
             self._param_snapshot[name] = {k: dict(message_to_ordereddict(v))

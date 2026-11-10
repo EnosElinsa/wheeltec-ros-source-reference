@@ -111,10 +111,10 @@ class VoWatchdog(Node):
                 self._cancellations[action] = Cancellation()
                 self.create_subscription(GoalStatusArray, f"/{action}/_action/status",
                                          self._on_goals, transient)
-            self._clients = {name: self.create_client(CancelGoal, f"/{name}/_action/cancel_goal")
-                             for name in self._cancellations}
+            self._cancel_clients = {name: self.create_client(CancelGoal, f"/{name}/_action/cancel_goal")
+                                    for name in self._cancellations}
         else:
-            self._clients = {}
+            self._cancel_clients = {}
         self.create_service(Trigger, "/vision/rearm", self._on_rearm)
         self._steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
         self.create_timer(0.05, self._tick, clock=self._steady_clock)
@@ -219,7 +219,7 @@ class VoWatchdog(Node):
             self._fault_episode = True
             self._goal_boundary.update(False, self.get_clock().now().nanoseconds)
             self._blocked_goals.update(self._seen_goals)
-            self._cancellations = {name: Cancellation() for name in self._clients}
+            self._cancellations = {name: Cancellation() for name in self._cancel_clients}
             self._cancel_futures.clear()
         for name, attempt in self._cancellations.items():
             future = self._cancel_futures.get(name)
@@ -236,7 +236,7 @@ class VoWatchdog(Node):
                 if old is not None:
                     old.cancel()
                 attempt.begin(now)
-                client = self._clients[name]
+                client = self._cancel_clients[name]
                 if client.service_is_ready():
                     self._cancel_futures[name] = client.call_async(CancelGoal.Request())
                 else:
