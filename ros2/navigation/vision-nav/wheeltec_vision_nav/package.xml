@@ -3,7 +3,7 @@
   <name>wheeltec_vision_nav</name>
   <version>0.1.0</version>
   <description>Isolated RealSense RGB-D visual mapping and Nav2 navigation for WHEELTEC.</description>
-  <maintainer email="wheeltec@localhost">WHEELTEC</maintainer>
+  <maintainer email="wheeltec@todo.todo">WHEELTEC</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_python</buildtool_depend>

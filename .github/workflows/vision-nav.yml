@@ -41,6 +41,7 @@ jobs:
         shell: bash
         run: |
           source /opt/ros/humble/setup.bash
+          python3 -c "from catkin_pkg.package import parse_package; package = parse_package('ros2/navigation/vision-nav/wheeltec_vision_nav/package.xml'); assert package.get_build_type() == 'ament_python'"
           colcon --log-base /tmp/vision-log build --base-paths ros2/navigation/vision-nav/wheeltec_vision_nav --build-base /tmp/vision-build --install-base /tmp/vision-install --packages-select wheeltec_vision_nav
           source /tmp/vision-install/setup.bash
           ros2 pkg executables wheeltec_vision_nav
