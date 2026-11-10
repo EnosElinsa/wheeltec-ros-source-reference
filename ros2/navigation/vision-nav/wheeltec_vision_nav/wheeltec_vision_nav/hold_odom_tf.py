@@ -98,7 +98,9 @@ class HoldOdomTf(Node):
     def __init__(self) -> None:
         super().__init__("vision_hold_odom_tf")
         self.last_valid: OdomSample | None = None
-        self.seed_map_tf = True
+        # RTAB-Map owns map -> odom, including startup. A display-only identity
+        # transform must not compete with the estimator's transform.
+        self.seed_map_tf = False
         self.stitch = OdomStitch()
         vo_qos = QoSProfile(
             depth=20,

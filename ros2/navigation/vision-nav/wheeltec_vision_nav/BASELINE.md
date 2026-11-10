@@ -10,7 +10,7 @@
 
 ## 会话 V：视觉 + 底盘（IMU / 轮速）
 
-建图启动会清空所给数据库。必须用一次性路径，不要指向 `office.db` 或正在用的图。
+建图默认 `wipe_db:=false`，保留数据库。下面为了独立基线显式清库，清理前会备份并检查占用；仍应使用一次性路径，不要指向 `office.db` 或正在用的图。
 
 ```bash
 source /home/wheeltec/vision_ws/source_overlay.bash
@@ -52,7 +52,7 @@ ros2 run wheeltec_vision_nav check_baseline --session vision_base --live --secon
 
 警告项（不单独判失败）：手推有纹理墙面时 `/odom_info_lite` 的 `lost` 比例应低（默认门槛 10%）、内点中位数应大于 20、848×480 红外应 ≥ 10 Hz（掉下去则考虑改回 640×480）、`start_base:=true` 时 `/tf` 上应有 `odom`→`base_footprint`，以及作为逆变换的 `base_footprint`→`wheel_odom`（不要出现 `wheel_odom` 作为 `base_footprint` 的父系）。静止无纹理时允许跟丢，但应在有纹理墙面再补一段。
 
-需要 VO 质量时：保持同一套话题，车**缓慢手推**前把 `start_base` 改回 `false` 另录一包 `session:=vision`。带底盘猜测的建图用 `start_base:=true` 或 `use_wheel_guess:=true`，此时轮速 TF 是 `base_footprint`→`wheel_odom`（逆），`odom`→`base_footprint` 与 `/odom` 由 EKF（`vision_ekf`）融合轮速、陀螺仪与视觉里程计后发布。
+需要 VO 质量时：保持同一套话题，车**缓慢手推**前把 `start_base` 改回 `false` 另录一包 `session:=vision`。启动底盘使用 `start_base:=true`；`use_wheel_guess:=true` 只选择已有轮速先验，不启动底盘。启用轮速先验时，轮速 TF 是 `base_footprint`→`wheel_odom`（逆），`odom`→`base_footprint` 与 `/odom` 由 EKF（`vision_ekf`）融合轮速、陀螺仪与视觉里程计后发布。
 
 ## 会话 L：M10P 扫描
 

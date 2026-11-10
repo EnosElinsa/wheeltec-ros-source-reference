@@ -17,6 +17,7 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(Threads REQUIRED)
 #find_package(actionlib REQUIRED)
 #find_package(actionlib_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -43,6 +44,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Position.msg"
  )
 if(BUILD_TESTING)
+  enable_testing()
+  add_executable(test_command_deadline test/test_command_deadline.cpp)
+  target_include_directories(test_command_deadline PRIVATE include)
+  add_test(NAME command_deadline COMMAND test_command_deadline)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
   # uncomment the line when a copyright and license is not present in all source files
@@ -62,6 +67,7 @@ set(wheeltec_robot_node_SRCS
 )
 
 add_executable(wheeltec_robot_node src/wheeltec_robot.cpp src/Quaternion_Solution.cpp)
+target_link_libraries(wheeltec_robot_node Threads::Threads)
 ament_target_dependencies(wheeltec_robot_node tf2_ros tf2 tf2_geometry_msgs rclcpp std_msgs nav_msgs std_srvs sensor_msgs ackermann_msgs serial wheeltec_robot_msg)
 
 #add_executable(testNode src/test.cpp src/Quaternion_Solution.cpp)

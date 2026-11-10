@@ -1,0 +1,51 @@
+diff --git a/corelib/src/odometry/OdometryVINSFusion.cpp b/corelib/src/odometry/OdometryVINSFusion.cpp
+--- a/corelib/src/odometry/OdometryVINSFusion.cpp
++++ b/corelib/src/odometry/OdometryVINSFusion.cpp
+@@ -35,6 +35,7 @@
+ #include "rtabmap/utilite/UDirectory.h"
+ 
+ #ifdef RTABMAP_VINS_FUSION
++#include <algorithm>
+ #include <estimator/estimator.h>
+ #include <estimator/parameters.h>
+ #include <camodocal/camera_models/PinholeCamera.h>
+@@ -51,6 +52,8 @@ public:
+ 	VinsFusionEstimator() : Estimator()
+ 	{}
+ 
++	double lastProcessedImageStamp = -1.0;
++
+ 	bool init(const Transform & imuLocalTransform,
+ 			const StereoCameraModel & model,
+ 			bool rectified)
+@@ -308,6 +311,7 @@ public:
+ 			}
+ 			mProcess.lock();
+ 			processImage(feature.second, feature.first);
++			lastProcessedImageStamp = feature.first;
+ 			prevTime = curTime;																
+ 			mProcess.unlock();
+ 		}
+@@ -468,7 +472,8 @@ Transform OdometryVINSFusion::computeTransform(
+ 
+ 		vinsEstimator_->inputImage(data.stamp(), left, right);
+ 
+-		if(vinsEstimator_->solver_flag == Estimator::NON_LINEAR)
++		if(vinsEstimator_->solver_flag == Estimator::NON_LINEAR &&
++		   vinsEstimator_->lastProcessedImageStamp == data.stamp())
+ 		{
+ 			Quaterniond tmp_Q;
+ 			tmp_Q = Quaterniond(vinsEstimator_->Rs[WINDOW_SIZE]);
+@@ -538,7 +543,11 @@ Transform OdometryVINSFusion::computeTransform(
+ 						info->newCorners.push_back(newUV);
+ 
+ 						info->reg.matchesIDs.push_back(featureIndex);
+-						if(it_per_id.solve_flag > 0) {
++						// Window features can outlive their last image observation.
++						const auto & currentIds = vinsEstimator_->featureTracker.ids;
++						if(it_per_id.solve_flag == 1 &&
++						   std::find(currentIds.begin(), currentIds.end(),
++						             it_per_id.feature_id) != currentIds.end()) {
+ 							// Feature correctly tracked
+ 							info->words.insert(std::make_pair(featureIndex, cv::KeyPoint(newUV, 3.0f)));
+ 							info->cornerInliers.push_back(featureIndex);

@@ -1,0 +1,49 @@
+/camera/infra1/image_rect_raw:
+  reliability: best_effort
+  history: keep_last
+  depth: 30
+/camera/infra2/image_rect_raw:
+  reliability: best_effort
+  history: keep_last
+  depth: 30
+/camera/infra1/camera_info:
+  reliability: best_effort
+  history: keep_last
+  depth: 30
+/camera/infra2/camera_info:
+  reliability: best_effort
+  history: keep_last
+  depth: 30
+/camera/depth/image_rect_raw:
+  reliability: best_effort
+  history: keep_last
+  depth: 30
+/camera/depth/camera_info:
+  reliability: best_effort
+  history: keep_last
+  depth: 30
+/camera/infra1/metadata:
+  reliability: best_effort
+  history: keep_last
+  depth: 60
+/camera/infra2/metadata:
+  reliability: best_effort
+  history: keep_last
+  depth: 60
+/camera/depth/metadata:
+  reliability: best_effort
+  history: keep_last
+  depth: 60
+/imu/data_raw:
+  reliability: best_effort
+  history: keep_last
+  depth: 300
+/wheel/odom:
+  reliability: best_effort
+  history: keep_last
+  depth: 50
+/tf_static:
+  reliability: reliable
+  durability: transient_local
+  history: keep_last
+  depth: 100

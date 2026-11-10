@@ -4,7 +4,57 @@ from __future__ import annotations
 
 import struct
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+
+class BoundedWriter:
+    """One disk/encoding worker with a bounded queue; callbacks never wait."""
+    def __init__(self, capacity=2):
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vision-preview")
+        self._pending = []
+        self.capacity = capacity
+        self.errors = []
+
+    def collect(self):
+        remaining = []
+        for future in self._pending:
+            if future.done():
+                try:
+                    future.result()
+                except Exception as error:
+                    self.errors.append(str(error))
+            else:
+                remaining.append(future)
+        self._pending = remaining
+
+    def submit(self, callback, *args):
+        self.collect()
+        if len(self._pending) >= self.capacity:
+            return False
+        self._pending.append(self._executor.submit(callback, *args))
+        return True
+
+    def close(self):
+        self._executor.shutdown(wait=True)
+        self.collect()
+
+
+def write_image_preview(path, width, height, encoding, step, big_endian, data):
+    bytes_per_pixel = 1 if encoding in ("mono8", "8UC1") else 2
+    if encoding not in ("mono8", "8UC1", "16UC1", "mono16"):
+        raise ValueError("unsupported preview encoding")
+    row_bytes = width * bytes_per_pixel
+    if width <= 0 or height <= 0 or step < row_bytes or len(data) != step * height:
+        raise ValueError("malformed preview buffer")
+    payload = b"".join(bytes(data[y*step:y*step+row_bytes]) for y in range(height))
+    png = (encode_gray8_png(width, height, payload) if bytes_per_pixel == 1 else
+           encode_depth16_preview_png(width, height, payload, little_endian=not big_endian))
+    Path(path).write_bytes(png)
+
+
+def write_map_preview(path, width, height, data):
+    Path(path).write_bytes(encode_occupancy_png(width, height, data))
 
 
 def stamp_to_sec(sec: int, nanosec: int) -> float:
@@ -129,6 +179,9 @@ def build_summary(parts: dict) -> dict:
         "depth_frame_id": depth.get("frame_id"),
         "depth_size": [depth.get("width"), depth.get("height")] if depth else None,
         "paired_stamp_delta_sec": paired_delta,
+        "paired_stamp_delta_meaning": "output stamps; not acquisition synchronization",
+        "original_pair_delta_sec": (parts["pair_provenance"]["delta_ns"] / 1e9
+                                     if parts.get("pair_provenance") else None),
         "camera_fx": fx,
         "camera_fy": fy,
         "camera_cx": cx,

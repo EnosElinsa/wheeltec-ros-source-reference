@@ -1,4 +1,8 @@
-"""VO loss detection used by vo_watchdog. No ROS imports."""
+"""Legacy sample classifier retained for compatibility and tests.
+
+should_zero_cmd is not runtime motion authorization; runtime_safety owns that.
+No ROS imports.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,7 @@ STATUS_RECOVERING = "recovering"
 
 
 def quaternion_valid(x: float, y: float, z: float, w: float) -> bool:
-    return math.sqrt(x * x + y * y + z * z + w * w) >= 0.5
+    return all(math.isfinite(v) for v in (x, y, z, w)) and 0.98 <= x*x + y*y + z*z + w*w <= 1.02
 
 
 @dataclass

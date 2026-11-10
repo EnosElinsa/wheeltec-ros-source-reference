@@ -132,5 +132,6 @@ def test_old_velocity_command_is_not_repeated():
 def test_localization_freshness_comes_from_localization_pose_not_tf():
     node = (Path(__file__).parents[1] / "wheeltec_vision_nav" / "vo_watchdog.py").read_text(encoding="utf-8")
     assert '"/localization_pose"' in node
-    assert "TFMessage" not in node
-    assert "command_is_stale(self._last_cmd_time" in node
+    # TF authority/availability is checked separately; map freshness is still
+    # tied to localization_pose, never to the repeated map transform stamp.
+    assert 'self._note("localization", msg' in node

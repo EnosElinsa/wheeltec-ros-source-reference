@@ -57,6 +57,14 @@ Function: The speed topic subscription Callback function, according to the subsc
 ***************************************/
 void turn_on_robot::Akm_Cmd_Vel_Callback(const ackermann_msgs::msg::AckermannDriveStamped::SharedPtr akm_ctl) 
 {
+  if (akm_cmd_vel == "none") return;
+  std::lock_guard<std::mutex> command_lock(command_mutex_);
+  if (!std::isfinite(akm_ctl->drive.speed) || !std::isfinite(akm_ctl->drive.steering_angle) ||
+      std::abs(akm_ctl->drive.speed) > 32.0 || std::abs(akm_ctl->drive.steering_angle) > 6.28) {
+    Send_Stop_Packet();
+    return;
+  }
+  command_deadline_.note(wheeltec::CommandDeadline::Clock::now());
   short  transition;  //intermediate variable //中间变量
   //if(akm_cmd_vel=="ackermann_cmd") {RCLCPP_INFO(this->get_logger(),"is akm");} //Prompt message //提示信息
   Send_Data.tx[0]=FRAME_HEADER; //frame head 0x7B //帧头0X7BAkm_Cmd_Vel_Sub
@@ -100,6 +108,15 @@ void turn_on_robot::Akm_Cmd_Vel_Callback(const ackermann_msgs::msg::AckermannDri
 //void turn_on_robot::Cmd_Vel_Callback(const ackermann_msgs::msg::AckermannDriveStamped::SharedPtr akm_ctl) 
 void turn_on_robot::Cmd_Vel_Callback(const geometry_msgs::msg::Twist::SharedPtr twist_aux)
 {
+  if (akm_cmd_vel != "none") return;
+  std::lock_guard<std::mutex> command_lock(command_mutex_);
+  if (!std::isfinite(twist_aux->linear.x) || !std::isfinite(twist_aux->linear.y) ||
+      !std::isfinite(twist_aux->angular.z) || std::abs(twist_aux->linear.x) > 32.0 ||
+      std::abs(twist_aux->linear.y) > 32.0 || std::abs(twist_aux->angular.z) > 32.0) {
+    Send_Stop_Packet();
+    return;
+  }
+  command_deadline_.note(wheeltec::CommandDeadline::Clock::now());
   short  transition;  //intermediate variable //中间变量
   //if(akm_cmd_vel=="none") {RCLCPP_INFO(this->get_logger(),"not akm");} //Prompt message //提示信息
   Send_Data.tx[0]=FRAME_HEADER; //frame head 0x7B //帧头0X7BAkm_Cmd_Vel_Sub
@@ -458,6 +475,11 @@ turn_on_robot::turn_on_robot()
   this->declare_parameter<std::string>("odom_frame_id", "odom");
   this->declare_parameter<std::string>("robot_frame_id", "base_link");
   this->declare_parameter<std::string>("gyro_frame_id", "gyro_link");
+  const double command_timeout = this->declare_parameter<double>("cmd_vel_timeout_s", 0.0);
+  if (!std::isfinite(command_timeout) || command_timeout < 0.0) {
+    throw std::invalid_argument("cmd_vel_timeout_s must be finite and nonnegative");
+  }
+  command_deadline_ = wheeltec::CommandDeadline(command_timeout);
 
   this->get_parameter("serial_baud_rate", serial_baud_rate);
   this->get_parameter("usart_port_name", usart_port_name);
@@ -505,6 +527,39 @@ turn_on_robot::turn_on_robot()
   if(Stm32_Serial.isOpen())
   {
     RCLCPP_INFO(this->get_logger(),"wheeltec_robot serial port opened"); //Serial port opened successfully //串口开启成功提示
+    if (command_timeout > 0.0) {
+      watchdog_running_ = true;
+      command_watchdog_ = std::thread(&turn_on_robot::Command_Watchdog, this);
+    }
+  }
+}
+
+void turn_on_robot::Send_Stop_Packet()
+{
+  std::array<uint8_t, SEND_DATA_SIZE> packet{};
+  packet[0] = FRAME_HEADER;
+  for (size_t i = 0; i < 9; ++i) packet[9] ^= packet[i];
+  packet[10] = FRAME_TAIL;
+  try {
+    if (Stm32_Serial.isOpen()) Stm32_Serial.write(packet.data(), packet.size());
+  } catch (const std::exception & error) {
+    RCLCPP_ERROR(this->get_logger(), "command stop write failed: %s", error.what());
+  }
+}
+
+void turn_on_robot::Command_Watchdog()
+{
+  // ROS spin_some is conditional on valid sensor packets in Control(). A ROS
+  // timer there would also stop running during blocked/corrupt serial reads.
+  for (;;) {
+    std::unique_lock<std::mutex> wait_lock(watchdog_mutex_);
+    if (watchdog_cv_.wait_for(wait_lock, std::chrono::milliseconds(50),
+        [this]() { return !watchdog_running_; })) break;
+    wait_lock.unlock();
+    std::lock_guard<std::mutex> command_lock(command_mutex_);
+    if (command_deadline_.expired(wheeltec::CommandDeadline::Clock::now())) {
+      Send_Stop_Packet();
+    }
   }
 }
 
@@ -516,6 +571,13 @@ Function: Destructor, executed only once and called by the system when an object
 
 turn_on_robot::~turn_on_robot()
 {
+  {
+    std::lock_guard<std::mutex> lock(watchdog_mutex_);
+    watchdog_running_ = false;
+  }
+  watchdog_cv_.notify_all();
+  if (command_watchdog_.joinable()) command_watchdog_.join();
+  std::lock_guard<std::mutex> command_lock(command_mutex_);
   //Sends the stop motion command to the lower machine before the turn_on_robot object ends
   //对象turn_on_robot结束前向下位机发送停止运动命令
   Send_Data.tx[0]=FRAME_HEADER;

@@ -1,0 +1,4 @@
+# Dependencies for the source-root pytest command; ROS runtime uses package.xml.
+pytest>=8,<9
+numpy>=1.26,<3
+PyYAML>=6,<7

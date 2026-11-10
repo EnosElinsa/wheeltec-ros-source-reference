@@ -1,15 +1,12 @@
 """Capture PNG previews and a YAML summary. Does not start mapping, navigation, or the chassis."""
 
 import os
-import sys
-
-sys.path.insert(0, os.path.dirname(__file__))
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 
-from launch_utils import capture_runtime_node
+from wheeltec_vision_nav.launch_utils import capture_runtime_node
 
 
 def generate_launch_description():

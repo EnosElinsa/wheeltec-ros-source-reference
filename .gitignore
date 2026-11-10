@@ -1,0 +1,25 @@
+# Local process records and temporary checkouts.
+.superpowers/
+.worktrees/
+.reference-tmp/
+
+# Python development.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# ROS workspace output.
+build/
+devel/
+install/
+log/
+logs/
+
+# Desktop metadata.
+.DS_Store
+Thumbs.db

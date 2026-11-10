@@ -20,14 +20,14 @@ from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
 
 from wheeltec_vision_nav.capture_runtime_logic import (
+    BoundedWriter,
     build_summary,
-    encode_depth16_preview_png,
-    encode_gray8_png,
-    encode_occupancy_png,
     image_sample,
     stamp_to_sec,
     tf_parents,
     write_yaml,
+    write_image_preview,
+    write_map_preview,
 )
 
 try:
@@ -93,6 +93,7 @@ class CaptureRuntime(Node):
         self._last_image_save: dict[str, float] = {}
         self._hz: dict[str, deque[float]] = {}
         self._param_clients = {}
+        self._preview_writer = BoundedWriter(capacity=2)
 
         self.create_subscription(Image, "/camera/infra1/image_rect_raw", self._on_infra, BEST_EFFORT)
         self.create_subscription(Image, "/camera/depth/image_rect_raw", self._on_depth, BEST_EFFORT)
@@ -106,6 +107,7 @@ class CaptureRuntime(Node):
         self.create_subscription(Twist, "/cmd_vel_safe", self._on_cmd_vel_safe, 10)
         self.create_subscription(String, "/vision/vo_status", self._on_vo_status, 10)
         self.create_subscription(String, "/vision/emitter_pair/status", self._on_emitter_status, 10)
+        self.create_subscription(String, "/vision/emitter_pair/provenance", self._on_pair_provenance, 10)
         self.create_subscription(PointCloud2, "/vision/obstacles", self._on_obstacles, BEST_EFFORT)
         self.create_subscription(
             PoseWithCovarianceStamped, "/localization_pose", self._on_localization, 10
@@ -127,6 +129,9 @@ class CaptureRuntime(Node):
         self._write_summary()
 
     def destroy_node(self) -> None:
+        self._preview_writer.close()
+        self._samples["preview_errors"] = self._preview_writer.errors
+        self._images = [name for name in self._images if (self.session / "images" / name).is_file()]
         self._write_summary()
         super().destroy_node()
 
@@ -168,24 +173,13 @@ class CaptureRuntime(Node):
         last = self._last_image_save.get(key)
         if last is not None and now - last < self.image_period:
             return
-        try:
-            payload = bytes(msg.data)
-            if msg.encoding in ("mono8", "8UC1"):
-                png = encode_gray8_png(msg.width, msg.height, payload[: msg.width * msg.height])
-            elif msg.encoding in ("16UC1", "mono16"):
-                png = encode_depth16_preview_png(
-                    msg.width,
-                    msg.height,
-                    payload,
-                    little_endian=not bool(msg.is_bigendian),
-                )
-            else:
-                return
-        except ValueError as exc:
-            self.get_logger().warn(f"skip {key} png: {exc}")
+        if msg.encoding not in ("mono8", "8UC1", "16UC1", "mono16"):
             return
         name = f"{key}_{count:03d}.png"
-        (self.session / "images" / name).write_bytes(png)
+        if not self._preview_writer.submit(write_image_preview, self.session / "images" / name,
+                                           msg.width, msg.height, msg.encoding, msg.step,
+                                           bool(msg.is_bigendian), msg.data):
+            return
         self._images.append(name)
         self._saved[key] = count + 1
         self._last_image_save[key] = now
@@ -278,13 +272,10 @@ class CaptureRuntime(Node):
         last = self._last_image_save.get(key)
         if last is not None and now - last < self.image_period:
             return
-        try:
-            png = encode_occupancy_png(msg.info.width, msg.info.height, list(msg.data))
-        except ValueError as exc:
-            self.get_logger().warn(f"skip map png: {exc}")
-            return
         name = f"map_{count:03d}.png"
-        (self.session / "images" / name).write_bytes(png)
+        if not self._preview_writer.submit(write_map_preview, self.session / "images" / name,
+                                           msg.info.width, msg.info.height, msg.data):
+            return
         self._images.append(name)
         self._saved[key] = count + 1
         self._last_image_save[key] = now
@@ -332,6 +323,15 @@ class CaptureRuntime(Node):
         if len(self._tf_pairs) > 400:
             self._tf_pairs = self._tf_pairs[-400:]
 
+    def _on_pair_provenance(self, msg: String) -> None:
+        try:
+            provenance = json.loads(msg.data)
+            delta = provenance["delta_ns"]
+            if type(delta) is int and delta >= 0:
+                self._samples["pair_provenance"] = provenance
+        except (ValueError, TypeError, KeyError):
+            pass
+
     def _on_tf_static(self, msg: TFMessage) -> None:
         for item in msg.transforms:
             self._tf_static_pairs[item.child_frame_id] = item.header.frame_id
@@ -356,6 +356,8 @@ class CaptureRuntime(Node):
                 self._samples["emitter_sample"] = emit
 
     def _tick(self) -> None:
+        self._preview_writer.collect()
+        self._samples["preview_errors"] = list(self._preview_writer.errors)
         self._poll_params()
         self._write_summary()
 

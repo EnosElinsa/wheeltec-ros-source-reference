@@ -3,6 +3,13 @@
 #define __WHEELTEC_ROBOT_H_
 
 #include <memory>
+#include <array>
+#include <cmath>
+#include <stdexcept>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#include "turn_on_wheeltec_robot/command_deadline.hpp"
 #include <inttypes.h>
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
@@ -152,6 +159,15 @@ class turn_on_robot : public rclcpp::Node
 		 // const std::string & name = "wheeltec_robot");
 
 	private:
+
+    std::mutex command_mutex_;
+    std::mutex watchdog_mutex_;
+    std::condition_variable watchdog_cv_;
+    std::thread command_watchdog_;
+    bool watchdog_running_{false};
+    wheeltec::CommandDeadline command_deadline_;
+    void Send_Stop_Packet();  // command_mutex_ must be held
+    void Command_Watchdog();
 
 		//rclcpp::Node::SharedPtr nl;           //Create a ROS node handle //创建ROS节点句柄
 		rclcpp::Time _Now, _Last_Time;  //Time dependent, used for integration to find displacement (mileage) //时间相关，用于积分求位移(里程)

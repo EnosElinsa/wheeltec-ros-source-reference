@@ -1,3 +1,7 @@
+from dataclasses import replace
+
+import pytest
+
 from wheeltec_vision_nav.hold_odom_tf_logic import (
     OdomSample,
     OdomStitch,
@@ -103,3 +107,28 @@ def test_wheel_source_is_fresh_within_timeout():
     assert not wheel_source_is_fresh(1.0, 0.0)
     assert wheel_source_is_fresh(1.0, 0.8)
     assert not wheel_source_is_fresh(1.0, 0.69)
+    assert not wheel_source_is_fresh(1.0, 1.1)
+
+
+@pytest.mark.parametrize("field", ["x", "y", "z", "qx", "qy", "qz", "qw", "cov0", "cov5"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_nonfinite_pose_quaternion_and_covariance_are_never_valid(field, value):
+    assert not odom_sample_is_valid(replace(identity_odom_sample(1, 0), **{field: value}))
+
+
+@pytest.mark.parametrize("norm", [.8, 1.2, 1e100])
+def test_quaternion_must_be_near_unit_norm(norm):
+    assert not odom_sample_is_valid(replace(identity_odom_sample(1, 0), qw=norm))
+
+
+@pytest.mark.parametrize("variance", [0., -1., 9999.])
+def test_angular_covariance_must_also_be_valid(variance):
+    assert not odom_sample_is_valid(replace(identity_odom_sample(1, 0), cov5=variance))
+
+
+def test_invalid_pose_is_held_without_copying_its_nonfinite_coordinates():
+    last = replace(identity_odom_sample(1, 0), x=.4)
+    invalid = replace(identity_odom_sample(2, 0), x=float("nan"))
+    held = gated_odom_sample(last, invalid)
+    assert held.x == .4 and held.stamp_sec == 2
+    assert odom_sample_is_valid(held)

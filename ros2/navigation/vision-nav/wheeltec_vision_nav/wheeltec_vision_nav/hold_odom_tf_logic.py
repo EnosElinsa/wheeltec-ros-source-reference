@@ -33,15 +33,22 @@ class OdomSample:
 
 
 def odom_sample_is_valid(sample: OdomSample) -> bool:
+    if not all(math.isfinite(v) for v in (
+        sample.x, sample.y, sample.z, sample.qx, sample.qy, sample.qz, sample.qw,
+        sample.cov0, sample.cov5,
+    )):
+        return False
     norm = math.sqrt(
         sample.qx * sample.qx
         + sample.qy * sample.qy
         + sample.qz * sample.qz
         + sample.qw * sample.qw
     )
-    if norm < 0.5:
+    if not 0.95 <= norm <= 1.05:
         return False
     if not math.isfinite(sample.cov0) or sample.cov0 <= 0.0 or sample.cov0 >= 9000.0:
+        return False
+    if sample.cov5 <= 0.0 or sample.cov5 >= 9000.0:
         return False
     return True
 
@@ -115,7 +122,7 @@ def wheel_relative_sample(
 def wheel_source_is_fresh(
     now: float, last_wheel_time: float, timeout_s: float = WHEEL_FRESH_S
 ) -> bool:
-    return last_wheel_time > 0.0 and (now - last_wheel_time) < timeout_s
+    return last_wheel_time > 0.0 and 0.0 <= now - last_wheel_time < timeout_s
 
 
 def gated_odom_sample(last_valid: OdomSample | None, incoming: OdomSample) -> OdomSample:

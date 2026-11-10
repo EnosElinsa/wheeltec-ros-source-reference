@@ -1,173 +1,332 @@
-#!/usr/bin/env python3
-"""Stop the chassis and cancel Nav2 when the pose the car drives on is unreliable.
+"""Monotonic final-command gate for mapping and navigation.
 
-Without the chassis, visual odometry is the only pose source: a VO loss stops
-the car. With the chassis, /odom keeps flowing from wheel odometry during a
-VO loss, so the car keeps driving until RTAB-Map has not localized for
-`map_stale_s` seconds. A localization is taken from /localization_pose, which
-RTAB-Map publishes only when it recognises a place; map->odom on /tf is
-re-broadcast continuously and says nothing about how old the correction is.
+No sensor, node output, TF rebroadcast or ROS clock pause can grant motion by
+itself. All motion is constrained by runtime_safety.SafetyController.
 """
 from __future__ import annotations
 
+import json
+import math
+import time
+from dataclasses import fields
+
+import numpy as np
 import rclpy
+from action_msgs.msg import GoalStatusArray
+from action_msgs.srv import CancelGoal
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import Odometry
+from rclpy.clock import Clock, ClockType
+from rclpy.duration import Duration
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import String
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.time import Time
+from rtabmap_msgs.msg import OdomInfo
+from sensor_msgs.msg import Image, Imu, PointCloud2
+from sensor_msgs_py import point_cloud2
+from std_msgs.msg import Bool, String
+from std_srvs.srv import Trigger
+from tf2_ros import Buffer, TransformException, TransformListener
+from tf2_msgs.msg import TFMessage
 
-from wheeltec_vision_nav.vo_watchdog_logic import (
-    STATUS_LOST,
-    WatchdogConfig,
-    WatchdogState,
-    command_is_stale,
-    evaluate_sample,
-    note_map_correction,
-    note_wheel,
-    should_zero_cmd,
-    vo_lost,
+from wheeltec_vision_nav.runtime_safety import (
+    DEGRADED, READY, Cancellation, GoalAcceptanceBoundary, SafetyConfig, SafetyController,
+    covariance_valid, normalized_command, observed_forward_range, quaternion_valid,
+    swept_clearance, transform_points, transform_valid,
 )
+from wheeltec_vision_nav.depth_validity import depth_has_valid_returns
 
-try:
-    from rtabmap_msgs.msg import OdomInfo
-except ImportError:  # pragma: no cover
-    OdomInfo = None
 
-try:
-    from action_msgs.srv import CancelGoal
-except ImportError:  # pragma: no cover
-    CancelGoal = None
+def stamp_ns(stamp):
+    return int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec)
+
+
+def pose_valid(pose):
+    p, q = pose.position, pose.orientation
+    return all(math.isfinite(v) for v in (p.x, p.y, p.z)) and quaternion_valid(q.x, q.y, q.z, q.w)
+
+
+def odom_valid(msg):
+    t = msg.twist.twist
+    return (pose_valid(msg.pose.pose) and covariance_valid(msg.pose.covariance)
+            and covariance_valid(msg.twist.covariance)
+            and all(math.isfinite(v) for v in (t.linear.x, t.linear.y, t.linear.z,
+                                               t.angular.x, t.angular.y, t.angular.z)))
 
 
 class VoWatchdog(Node):
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__("vision_vo_watchdog")
-        min_inliers = int(self.declare_parameter("min_inliers", 20).value)
-        consecutive_bad = int(self.declare_parameter("consecutive_bad", 5).value)
-        wheel_backup = bool(self.declare_parameter("wheel_backup", False).value)
-        wheel_fresh_s = float(self.declare_parameter("wheel_fresh_s", 0.3).value)
-        map_stale_s = float(self.declare_parameter("map_stale_s", 5.0).value)
-        self.cmd_timeout_s = float(self.declare_parameter("cmd_timeout_s", 0.5).value)
-        localization_topic = str(self.declare_parameter("localization_topic", "/localization_pose").value)
-        cmd_in = str(self.declare_parameter("cmd_vel_in", "/cmd_vel").value)
-        cmd_out = str(self.declare_parameter("cmd_vel_out", "/cmd_vel_safe").value)
-        status_topic = str(self.declare_parameter("status_topic", "/vision/vo_status").value)
-        cancel_service = str(
-            self.declare_parameter("cancel_service", "/navigate_to_pose/_action/cancel_goal").value
-        )
-        self._cfg = WatchdogConfig(
-            min_inliers=min_inliers,
-            consecutive_bad=consecutive_bad,
-            wheel_backup=wheel_backup,
-            wheel_fresh_s=wheel_fresh_s,
-            map_stale_s=map_stale_s,
-        )
-        self._state = WatchdogState()
-        self._last_cmd = Twist()
-        self._last_cmd_time = -1.0
-        self._had_cmd = False
-        self._zeroing = False
-        sensor_qos = QoSProfile(
-            depth=20,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
-            history=HistoryPolicy.KEEP_LAST,
-        )
-        self.create_subscription(Odometry, "/odom_vo", self._on_odom, sensor_qos)
-        if OdomInfo is not None:
-            self.create_subscription(OdomInfo, "/odom_info_lite", self._on_info, sensor_qos)
-        if wheel_backup:
-            self.create_subscription(Odometry, "/wheel/odom", self._on_wheel, sensor_qos)
-            self.create_subscription(
-                PoseWithCovarianceStamped, localization_topic, self._on_localization, 10
-            )
-        self.create_subscription(Twist, cmd_in, self._on_cmd, 20)
-        self.cmd_pub = self.create_publisher(Twist, cmd_out, 20)
-        self.status_pub = self.create_publisher(String, status_topic, 10)
-        self._cancel_cli = None
-        if CancelGoal is not None:
-            self._cancel_cli = self.create_client(CancelGoal, cancel_service)
-        self.create_timer(0.05, self._tick)
+        defaults = SafetyConfig()
+        values = {f.name: self.declare_parameter(f.name, getattr(defaults, f.name)).value
+                  for f in fields(SafetyConfig)}
+        self.safety = SafetyController(SafetyConfig(**values))
+        # Retained declaration for old launch clients; freshness/recovery now
+        # replaces frame-count-only loss detection.
+        self.declare_parameter("consecutive_bad", 5)
+        self._cfg = self.safety.cfg
+        self._clouds = {"cloud": np.empty((0, 3)), "obstacles": np.empty((0, 3))}
+        # Covers a complete 848x480 cloud decimated by four before voxel filtering.
+        self._cloud_max_points = int(self.declare_parameter("cloud_max_points", 100000).value)
+        self._last_status_time = -1.0
+        self._last_ros_time = None
+        self._last_wall_time = None
+        self._seen_goals = set()
+        self._blocked_goals = set()
+        self._fault_episode = False
+        self._goal_boundary = GoalAcceptanceBoundary()
+        self._tf_authors = {}
+        self._last_graph_check = -1.0
+        self._ownership_valid = False
+        self._cancellations = {}
+        self._cancel_futures = {}
+        self._tf = Buffer(cache_time=Duration(seconds=5.0))
+        self._listener = TransformListener(self._tf, self)
+        qos = QoSProfile(depth=2, reliability=ReliabilityPolicy.BEST_EFFORT)
+        transient = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                               reliability=ReliabilityPolicy.RELIABLE)
+        self.cmd_pub = self.create_publisher(Twist, self._param("cmd_vel_out", "/cmd_vel_safe"), 1)
+        self.status_pub = self.create_publisher(String, self._param("status_topic", "/vision/vo_status"), 5)
+        self.health_pub = self.create_publisher(DiagnosticArray, "/vision/health", 5)
+        self.detail_pub = self.create_publisher(String, "/vision/health/status", 5)
+        self.ready_pub = self.create_publisher(Bool, "/vision/ready", transient)
+        self.create_subscription(Twist, self._param("cmd_vel_in", "/cmd_vel"), self._on_cmd, 1)
+        self.create_subscription(Odometry, self._param("vo_topic", "/odom_vo"), self._on_vo, qos)
+        self.create_subscription(OdomInfo, self._param("info_topic", "/odom_info_lite"), self._on_info, qos)
+        self.create_subscription(Odometry, "/odom", self._on_odom, qos)
+        self.create_subscription(Image, "/camera/depth/image_rect_raw", self._on_depth, qos)
+        self.create_subscription(PointCloud2, "/vision/depth_cloud", lambda m: self._on_cloud(m, "cloud"), qos)
+        self.create_subscription(PointCloud2, "/vision/obstacles", lambda m: self._on_cloud(m, "obstacles"), qos)
+        self.create_subscription(TFMessage, "/tf", self._on_tf_authority, qos)
+        if self._cfg.wheel_backup or self._cfg.supervised_reverse:
+            self.create_subscription(Odometry, "/wheel/odom", self._on_wheel, qos)
+        if self._cfg.wheel_backup:
+            self.create_subscription(Imu, "/vision/imu", self._on_imu, qos)
+        if self._cfg.mode == "navigation":
+            self.create_subscription(PoseWithCovarianceStamped,
+                                     self._param("localization_topic", "/localization_pose"),
+                                     self._on_localization, qos)
+            for action in ("navigate_to_pose", "navigate_through_poses", "follow_waypoints"):
+                self._cancellations[action] = Cancellation()
+                self.create_subscription(GoalStatusArray, f"/{action}/_action/status",
+                                         self._on_goals, transient)
+            self._clients = {name: self.create_client(CancelGoal, f"/{name}/_action/cancel_goal")
+                             for name in self._cancellations}
+        else:
+            self._clients = {}
+        self.create_service(Trigger, "/vision/rearm", self._on_rearm)
+        self._steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
+        self.create_timer(0.05, self._tick, clock=self._steady_clock)
 
-    def _now(self) -> float:
-        return self.get_clock().now().nanoseconds * 1e-9
+    def _param(self, name, default):
+        return self.declare_parameter(name, default).value
 
-    def _zero(self) -> bool:
-        return should_zero_cmd(self._state, self._cfg, self._now())
+    def _note(self, name, msg, valid=True):
+        return self.safety.note(name, stamp_ns(msg.header.stamp), time.monotonic(),
+                                valid=valid, ros_now_ns=self.get_clock().now().nanoseconds)
 
-    def _publish_status(self) -> None:
-        status = self._state.status
-        if vo_lost(self._state) and not self._zero():
-            status = "lost_wheel_backup"
-        self.status_pub.publish(String(data=status))
+    def _on_vo(self, msg):
+        self._note("vo", msg, odom_valid(msg) and msg.child_frame_id == "base_footprint")
 
-    def _on_info(self, msg) -> None:
-        evaluate_sample(
-            self._state,
-            self._cfg,
-            lost_flag=bool(getattr(msg, "lost", False)),
-            inliers=int(getattr(msg, "inliers", 0)),
-        )
-        self._publish_status()
+    def _on_info(self, msg):
+        self.safety.note_visual(stamp_ns(msg.header.stamp), time.monotonic(), bool(msg.lost),
+                                int(msg.inliers), self.get_clock().now().nanoseconds)
 
-    def _on_odom(self, msg: Odometry) -> None:
-        q = msg.pose.pose.orientation
-        evaluate_sample(self._state, self._cfg, quat=(q.x, q.y, q.z, q.w))
-        self._publish_status()
+    def _on_odom(self, msg):
+        self._note("odom", msg, odom_valid(msg) and msg.header.frame_id == "odom"
+                   and msg.child_frame_id == "base_footprint")
 
-    def _on_wheel(self, _msg: Odometry) -> None:
-        note_wheel(self._state, self._now())
+    def _on_wheel(self, msg):
+        self.safety.note_wheel(stamp_ns(msg.header.stamp), time.monotonic(),
+                              msg.twist.twist.linear.x if odom_valid(msg) else math.nan,
+                              ros_now_ns=self.get_clock().now().nanoseconds)
 
-    def _on_localization(self, _msg: PoseWithCovarianceStamped) -> None:
-        note_map_correction(self._state, self._now())
+    def _on_imu(self, msg):
+        self._note("imu", msg, math.isfinite(msg.angular_velocity.z)
+                   and math.isfinite(msg.angular_velocity_covariance[8])
+                   and msg.angular_velocity_covariance[8] >= 0)
 
-    def _on_cmd(self, msg: Twist) -> None:
-        self._last_cmd = msg
-        self._last_cmd_time = self._now()
-        self._had_cmd = True
-        if not self._zero():
-            self.cmd_pub.publish(msg)
+    def _on_localization(self, msg):
+        self._note("localization", msg, msg.header.frame_id == "map"
+                   and pose_valid(msg.pose.pose) and covariance_valid(msg.pose.covariance)
+                   and max(msg.pose.covariance[i] for i in (0, 7, 35)) < 1000)
 
-    def _cancel_navigation(self) -> None:
-        if self._cancel_cli is None or CancelGoal is None:
+    def _on_depth(self, msg):
+        try:
+            # Interleaved emitter-off frames may have weak/no depth. Only valid
+            # returns refresh the .3 s deadline; invalid frames never clear it.
+            if depth_has_valid_returns(msg):
+                self._note("depth", msg)
+        except (ValueError, TypeError, BufferError):
+            self._note("depth", msg, False)
+
+    def _on_cloud(self, msg, name):
+        try:
+            if msg.width * msg.height > self._cloud_max_points:
+                raise ValueError("cloud too large for safety processing budget")
+            rows = list(point_cloud2.read_points(msg, field_names=("x", "y", "z"), skip_nans=False))
+            points = np.array([tuple(row) for row in rows], dtype=float).reshape(-1, 3)
+            if not np.isfinite(points).all() or (name == "cloud" and len(points) < 9):
+                raise ValueError("invalid depth cloud")
+            transform = self._tf.lookup_transform("odom", msg.header.frame_id,
+                                                  Time.from_msg(msg.header.stamp))
+            points = transform_points(points, transform.transform)
+            if self._note(name, msg):
+                self._clouds[name] = points
+        except (TransformException, ValueError, TypeError, IndexError, KeyError):
+            self._note(name, msg, False)
+
+    def _on_cmd(self, msg):
+        other = (msg.linear.y, msg.linear.z, msg.angular.x, msg.angular.y)
+        if any(not math.isfinite(v) or abs(v) > 1e-6 for v in other):
+            self.safety.stop("nonplanar_or_invalid_command")
+        else:
+            self.safety.note_command(msg.linear.x, msg.angular.z, time.monotonic())
+        # Evaluate immediately as well as on the independent 20 Hz timer.
+        self._tick()
+
+    def _on_tf_authority(self, msg, info):
+        now = time.monotonic()
+        author = bytes(info.publisher_gid)
+        for transform in msg.transforms:
+            if transform.child_frame_id in ("base_footprint", "odom"):
+                self._tf_authors.setdefault(transform.child_frame_id, {})[author] = (
+                    transform.header.frame_id, now)
+
+    def _on_goals(self, msg):
+        ros_now = self.get_clock().now().nanoseconds
+        self._goal_boundary.update(self.safety.state == READY and not self.safety.cancel_required, ros_now)
+        for status in msg.status_list:
+            goal = bytes(status.goal_info.goal_id.uuid)
+            new = goal not in self._seen_goals
+            self._seen_goals.add(goal)
+            if (status.status in (1, 2) and new and goal not in self._blocked_goals
+                    and self._goal_boundary.accepts(stamp_ns(status.goal_info.stamp), ros_now)):
+                if self.safety.rearm():
+                    self._fault_episode = False
+
+    def _on_rearm(self, _request, response):
+        response.success = self._cfg.mode == "mapping" and self.safety.rearm()
+        response.message = "mapping rearmed; send a new command" if response.success else (
+            "wait for healthy sensors; navigation requires a new accepted goal after cancellation")
+        return response
+
+    def _cancel_navigation(self, now):
+        if not self.safety.cancel_required:
             return
-        if not self._cancel_cli.service_is_ready():
-            return
-        self._cancel_cli.call_async(CancelGoal.Request())
+        if not self._fault_episode:
+            self._fault_episode = True
+            self._goal_boundary.update(False, self.get_clock().now().nanoseconds)
+            self._blocked_goals.update(self._seen_goals)
+            self._cancellations = {name: Cancellation() for name in self._clients}
+            self._cancel_futures.clear()
+        for name, attempt in self._cancellations.items():
+            future = self._cancel_futures.get(name)
+            if future is not None and future.done():
+                try:
+                    response = future.result()
+                    attempt.complete(response.return_code == CancelGoal.Response.ERROR_NONE)
+                except Exception as error:
+                    self.get_logger().warning(f"cancel {name}: {error}")
+                    attempt.complete(False)
+                self._cancel_futures.pop(name, None)
+            if attempt.due(now):
+                old = self._cancel_futures.pop(name, None)
+                if old is not None:
+                    old.cancel()
+                attempt.begin(now)
+                client = self._clients[name]
+                if client.service_is_ready():
+                    self._cancel_futures[name] = client.call_async(CancelGoal.Request())
+                else:
+                    attempt.complete(False)
+        if self._cancellations and all(a.succeeded for a in self._cancellations.values()):
+            self.safety.cancel_required = False
 
-    def _tick(self) -> None:
-        if self._zero():
-            self._last_cmd = Twist()
-            self._had_cmd = False
-            self.cmd_pub.publish(Twist())
-            if not self._zeroing:
-                self._zeroing = True
-                self._cancel_navigation()
-            if self._state.status != STATUS_LOST:
-                self._state.status = STATUS_LOST
-            self._publish_status()
-            return
-        if self._zeroing:
-            self._zeroing = False
-        if not self._had_cmd:
-            return
-        if command_is_stale(self._last_cmd_time, self._now(), self.cmd_timeout_s):
-            # The controller stopped publishing: never keep driving on an old command.
-            self._had_cmd = False
-            self.cmd_pub.publish(Twist())
-            return
-        self.cmd_pub.publish(self._last_cmd)
+    def _tick(self):
+        now = time.monotonic()
+        ros_now = self.get_clock().now().nanoseconds
+        if self._last_ros_time is not None:
+            delta_ros = (ros_now - self._last_ros_time) / 1e9
+            delta_wall = now - self._last_wall_time
+            if delta_ros < 0 or abs(delta_ros - delta_wall) > .5:
+                self.safety.clock_reset()
+        self._last_ros_time, self._last_wall_time = ros_now, now
+        if now - self._last_graph_check >= .2:
+            self._last_graph_check = now
+            self._ownership_valid = all(len(self.get_publishers_info_by_topic(topic)) == 1
+                                         for topic in ("/odom", "/cmd_vel_safe"))
+        tf_owners_valid = True
+        for child, authors in self._tf_authors.items():
+            current = {gid: data for gid, data in authors.items() if now - data[1] < 1.0}
+            self._tf_authors[child] = current
+            parent = "odom" if child == "base_footprint" else "map"
+            tf_owners_valid = tf_owners_valid and len(current) <= 1 and all(
+                item[0] == parent for item in current.values())
+        self.safety.note("ownership", ros_now, now, valid=self._ownership_valid and tf_owners_valid)
+        clearance, observed, age = 0.0, 0.0, 0.0
+        try:
+            transform = self._tf.lookup_transform("base_footprint", "odom", Time())
+            if not transform_valid(transform.transform):
+                raise ValueError("invalid odom transform")
+            if self._cfg.mode == "navigation":
+                map_transform = self._tf.lookup_transform("map", "odom", Time())
+                self.safety.note("map_tf", stamp_ns(map_transform.header.stamp), now,
+                                 valid=transform_valid(map_transform.transform), ros_now_ns=ros_now)
+            self.safety.note("tf", stamp_ns(transform.header.stamp), now, ros_now_ns=ros_now)
+            cloud = transform_points(self._clouds["cloud"], transform.transform)
+            obstacles = transform_points(self._clouds["obstacles"], transform.transform)
+            vx, wz = normalized_command(self._cfg, *self.safety._cmd)
+            clearance = swept_clearance(obstacles, self._cfg, vx, wz)
+            observed = observed_forward_range(cloud, self._cfg, vx, wz)
+            age = self.safety.geometry_age(now)
+        except (TransformException, ValueError):
+            self.safety.note("tf", 1, now, valid=False)
+        decision = self.safety.step(now, clearance_m=clearance, observed_range_m=observed,
+                                    observation_age_s=age)
+        output = Twist()
+        output.linear.x, output.angular.z = decision.vx, decision.wz
+        self.cmd_pub.publish(output)
+        self._cancel_navigation(now)
+        self._goal_boundary.update(self.safety.state == READY and not self.safety.cancel_required, ros_now)
+        if now - self._last_status_time >= .2:
+            self._last_status_time = now
+            detail = self.safety.summary(now)
+            detail.update(reason=decision.reason, output_vx=decision.vx, output_wz=decision.wz,
+                          clearance_m=clearance if math.isfinite(clearance) else None,
+                          observed_range_m=observed, observation_age_s=age,
+                          cancellations={name: {"attempts": a.attempts, "succeeded": a.succeeded}
+                                         for name, a in self._cancellations.items()})
+            self.detail_pub.publish(String(data=json.dumps(detail, allow_nan=False)))
+            self.ready_pub.publish(Bool(data=decision.ready))
+            legacy = "ok" if decision.state == READY else (
+                "lost_wheel_backup" if decision.state == DEGRADED else "lost")
+            self.status_pub.publish(String(data=legacy))
+            diagnostic = DiagnosticStatus(name="vision/runtime", hardware_id="R680/D435C",
+                level=(DiagnosticStatus.OK if decision.ready else
+                       DiagnosticStatus.ERROR if decision.state == "STOPPED" else DiagnosticStatus.WARN),
+                message=f"{decision.state}: {decision.reason}",
+                values=[KeyValue(key=k, value=json.dumps(v, allow_nan=False)) for k, v in detail.items()])
+            message = DiagnosticArray(status=[diagnostic])
+            message.header.stamp = self.get_clock().now().to_msg()
+            self.health_pub.publish(message)
+
+    def destroy_node(self):
+        self.cmd_pub.publish(Twist())
+        return super().destroy_node()
 
 
-def main() -> None:
+def main():
     rclpy.init()
     node = VoWatchdog()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
-    node.destroy_node()
-    rclpy.shutdown()
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":

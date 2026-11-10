@@ -1,0 +1,42 @@
+# Shared defaults for controlled visual-navigation runs. Hardware validation is pending.
+robot:
+  car_mode: senior_akm
+  serial_port: /dev/wheeltec_controller
+  camera_resource: d435c
+perception:
+  camera_profile: 848x480x30
+  max_features: 1500
+  cloud_decimation: 4
+  odom_tf_linear_variance: 0.0005
+  odom_tf_angular_variance: 0.0005
+navigation:
+  mppi_batch_size: 1000
+safety:
+  require_depth: true
+  min_inliers: 10
+  vo_timeout_s: 0.5
+  wheel_fresh_s: 0.3
+  sensor_timeout_s: 0.3
+  map_stale_s: 5.0
+  cmd_timeout_s: 0.5
+  future_tolerance_s: 0.1
+  recovery_s: 1.0
+  recovery_samples: 10
+  degraded_s: 1.0
+  degraded_m: 0.10
+  degraded_speed: 0.10
+  supervised_reverse: false
+  # Fixed supervised recovery limits shared with the installed behavior trees.
+  # Preflight rejects overrides to these three values.
+  reverse_speed: 0.08
+  reverse_m: 0.25
+  reverse_s: 3.2
+  max_speed: 0.3
+  max_yaw_rate: 1.0
+  min_turning_radius: 0.6
+  braking_deceleration: 0.3
+  reaction_s: 0.15
+  footprint_front: 0.25
+  footprint_rear: 0.25
+  footprint_half_width: 0.20
+  collision_margin: 0.05

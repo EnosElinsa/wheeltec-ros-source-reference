@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import bisect
 import json
+import math
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -24,6 +25,8 @@ class FrameRef:
     emitter: int | None
     payload: object = None
     info: object = None
+    stamp_ns: int | None = None
+    source: str = "unknown"
 
 
 def parse_emitter_mode(metadata_json: str | None) -> int | None:
@@ -39,8 +42,9 @@ def parse_emitter_mode(metadata_json: str | None) -> int | None:
         if key not in data:
             continue
         try:
-            return int(data[key])
-        except (TypeError, ValueError):
+            value = data[key]
+            return int(value) if value in (0, 1, "0", "1") else None
+        except (TypeError, ValueError, OverflowError):
             return None
     return None
 
@@ -51,13 +55,17 @@ def nearest_emitter(
     slop: float = 0.02,
 ) -> int | None:
     best: tuple[float, int] | None = None
+    conflict = False
     for stamp, mode in samples:
         dt = abs(stamp - image_stamp)
         if dt > slop:
             continue
+        if best is not None and dt == best[0] and mode != best[1]:
+            conflict = True
         if best is None or dt < best[0]:
             best = (dt, mode)
-    return None if best is None else best[1]
+            conflict = False
+    return None if best is None or conflict else best[1]
 
 
 def _is_off(emitter: int | None) -> bool:
@@ -65,50 +73,125 @@ def _is_off(emitter: int | None) -> bool:
 
 
 def _is_on(emitter: int | None) -> bool:
-    return emitter is not None and emitter != EMITTER_OFF
+    return emitter == EMITTER_ON
 
 
 def find_pair(
     ir_frames: Iterable[FrameRef],
     depth_frames: Iterable[FrameRef],
     *,
-    max_interval: float = 0.12,
+    max_interval: float = 0.05,
     min_interval: float = 0.02,
-    allow_unlabeled: bool = True,
+    allow_unlabeled: bool = False,
 ) -> tuple[FrameRef, FrameRef] | None:
     """Return (infra, depth) for a clean IR frame and a projected depth frame.
 
-    Labelled frames: infra must be off, depth must be on.
-    Unlabelled frames are used only when ``allow_unlabeled`` is True: skip
-    hardware-synced (same-time) pairs and take the nearest depth within
-    ``max_interval``. That fallback cannot tell which of the two frames carried
-    the speckle, so the node disables it once image-based labels are available.
+    Infra must be confidently off and depth confidently on. ``allow_unlabeled``
+    remains a compatibility argument, but uncertain exposures are never paired.
     """
     ir_list = list(ir_frames)
     depth_list = list(depth_frames)
     ir_candidates = [
         frame
         for frame in ir_list
-        if _is_off(frame.emitter) or (allow_unlabeled and frame.emitter is None)
+        if _is_off(frame.emitter)
     ]
     if not ir_candidates or not depth_list:
         return None
     ir = ir_candidates[-1]
     best: tuple[float, FrameRef] | None = None
     for depth in depth_list:
-        dt = abs(depth.stamp - ir.stamp)
+        if ir.stamp_ns is not None and depth.stamp_ns is not None:
+            dt = abs(depth.stamp_ns - ir.stamp_ns) / 1_000_000_000
+        else:
+            dt = abs(depth.stamp - ir.stamp)
+        if not math.isfinite(dt):
+            continue
         if dt > max_interval:
             continue
-        if depth.emitter is not None:
-            if not _is_on(depth.emitter):
-                continue
-        elif not allow_unlabeled or dt < min_interval:
+        if not _is_on(depth.emitter):
             continue
         if best is None or dt < best[0]:
             best = (dt, depth)
     if best is None:
         return None
     return ir, best[1]
+
+
+def pair_provenance(ir: FrameRef, depth: FrameRef) -> dict:
+    """Describe original exposures; integer ROS stamps must be supplied by the node."""
+    if ir.stamp_ns is None or depth.stamp_ns is None:
+        raise ValueError("original nanosecond stamps are required for provenance")
+    return {
+        "ir_stamp_ns": ir.stamp_ns,
+        "depth_stamp_ns": depth.stamp_ns,
+        "output_stamp_ns": ir.stamp_ns,
+        "delta_ns": abs(depth.stamp_ns - ir.stamp_ns),
+        "ir": {"stamp_ns": ir.stamp_ns, "emitter": ir.emitter, "source": ir.source},
+        "depth": {"stamp_ns": depth.stamp_ns, "emitter": depth.emitter, "source": depth.source},
+    }
+
+
+def camera_info_error(info, image) -> str | None:
+    """Check the calibration actually describes this image, using duck-typed ROS messages."""
+    if info is None:
+        return "missing_camera_info"
+    try:
+        info_stamp = info.header.stamp
+        image_stamp = image.header.stamp
+        if (int(info_stamp.sec) * 1_000_000_000 + int(info_stamp.nanosec)
+                != int(image_stamp.sec) * 1_000_000_000 + int(image_stamp.nanosec)):
+            return "camera_info_stamp"
+        if (info.width, info.height) != (image.width, image.height):
+            return "camera_info_dimensions"
+        if not image.header.frame_id or info.header.frame_id != image.header.frame_id:
+            return "camera_info_frame"
+        if len(info.k) != 9 or len(info.r) != 9 or len(info.p) != 12:
+            return "camera_info_calibration"
+        if not all(math.isfinite(v) for v in (*info.k, *info.r, *info.p, *info.d)):
+            return "camera_info_calibration"
+        if (info.k[0] <= 0 or info.k[4] <= 0 or info.p[0] <= 0 or info.p[5] <= 0
+                or abs(info.k[8] - 1) > 1e-3 or abs(info.p[10] - 1) > 1e-3):
+            return "camera_info_calibration"
+        if any(abs(info.k[i]) > 1e-3 for i in (6, 7)):
+            return "camera_info_calibration"
+        if any(abs(info.p[i]) > 1e-3 for i in (8, 9, 11)):
+            return "camera_info_calibration"
+        rows = [info.r[i:i + 3] for i in (0, 3, 6)]
+        if any(abs(sum(a * b for a, b in zip(rows[i], rows[j])) - (i == j)) > 1e-2
+               for i in range(3) for j in range(3)):
+            return "camera_info_calibration"
+        r = info.r
+        determinant = (r[0] * (r[4] * r[8] - r[5] * r[7])
+                       - r[1] * (r[3] * r[8] - r[5] * r[6])
+                       + r[2] * (r[3] * r[7] - r[4] * r[6]))
+        if abs(determinant - 1) > 1e-2:
+            return "camera_info_calibration"
+    except (AttributeError, TypeError, ValueError):
+        return "camera_info_calibration"
+    return None
+
+
+def image_array(image, *, depth: bool = False):
+    """Decode a padded mono image or return None for malformed buffers/encodings."""
+    import numpy as np
+
+    try:
+        encodings = ("16UC1", "mono16") if depth else ("mono8", "8UC1")
+        size = 2 if depth else 1
+        if image.encoding not in encodings or image.width <= 0 or image.height <= 0:
+            return None
+        if image.step < image.width * size or image.step % size:
+            return None
+        if image.is_bigendian not in (0, 1):
+            return None
+        data = memoryview(image.data)
+        if data.nbytes != image.height * image.step:
+            return None
+        dtype = np.dtype(">u2" if image.is_bigendian else "<u2") if depth else np.dtype("u1")
+        return np.frombuffer(data, dtype=dtype).reshape(image.height, image.step // size)[:, :image.width]
+    except (AttributeError, TypeError, ValueError, BufferError, OverflowError):
+        return None
 
 
 def output_stamp_is_new(last_output_stamp: float | None, ir_stamp: float) -> bool:
@@ -230,16 +313,24 @@ class EmitterClassifier:
             score.dots = dots
         if fill is not None:
             score.fill = fill
-        index = self._keys.index(key)
-        for other_index in (index - 1, index + 1):
-            if 0 <= other_index < len(self._keys):
-                other = self._scores[self._keys[other_index]]
-                older, newer = (other, score) if other_index < index else (score, other)
-                if newer.stamp - older.stamp <= self.frame_gap:
-                    self._apply(older, newer)
         self._trim()
+        # Rebuild from current evidence: a late IR/depth callback can invalidate
+        # an earlier comparison. Never publish provisional image-only labels.
+        self._labels.clear()
+        for older_key, newer_key in zip(self._keys, self._keys[1:]):
+            older, newer = self._scores[older_key], self._scores[newer_key]
+            if (newer.stamp - older.stamp <= self.frame_gap
+                    and all(value is not None for value in
+                            (older.dots, older.fill, newer.dots, newer.fill))):
+                self._apply(older, newer)
 
     def _apply(self, older: FrameScore, newer: FrameScore) -> None:
+        dots = _vote(older.dots, newer.dots, self.dot_margin)
+        fill = _vote(older.fill, newer.fill, self.fill_margin)
+        if dots and fill and dots != fill:
+            self._labels[stamp_key(older.stamp)] = None
+            self._labels[stamp_key(newer.stamp)] = None
+            return
         vote = compare_adjacent(older, newer, self.dot_margin, self.fill_margin)
         if vote == 0:
             return
