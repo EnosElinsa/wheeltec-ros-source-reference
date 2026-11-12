@@ -1,0 +1,48 @@
+--- a/rtabmap_odom/src/RGBDOdometryNode.cpp
++++ b/rtabmap_odom/src/RGBDOdometryNode.cpp
+@@ -27,6 +27,7 @@
+ 
+ #include "rtabmap_odom/rgbd_odometry.hpp"
+ #include "rclcpp/rclcpp.hpp"
++#include <stdexcept>
+ #ifdef RTABMAP_PYTHON
+ #include <rtabmap/core/PythonInterface.h>
+ #endif
+@@ -79,7 +80,12 @@
+ 	rclcpp::NodeOptions options;
+ 	options.arguments(arguments);
+ 	auto node = std::make_shared<rtabmap_odom::RGBDOdometry>(options);
+-	rclcpp::executors::MultiThreadedExecutor executor;
++	const int executorThreads = node->declare_parameter<int>("executor_threads", 2);
++	if(executorThreads < 1 || executorThreads > 32)
++	{
++		throw std::invalid_argument("executor_threads must be between 1 and 32");
++	}
++	rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), executorThreads);
+ 	executor.add_node(node);
+ 	executor.spin();
+ 	rclcpp::shutdown();
+--- a/rtabmap_odom/src/StereoOdometryNode.cpp
++++ b/rtabmap_odom/src/StereoOdometryNode.cpp
+@@ -27,6 +27,7 @@
+ 
+ #include "rtabmap_odom/stereo_odometry.hpp"
+ #include "rclcpp/rclcpp.hpp"
++#include <stdexcept>
+ #ifdef RTABMAP_PYTHON
+ #include <rtabmap/core/PythonInterface.h>
+ #endif
+@@ -79,7 +80,12 @@
+ 	rclcpp::NodeOptions options;
+ 	options.arguments(arguments);
+ 	auto node = std::make_shared<rtabmap_odom::StereoOdometry>(options);
+-	rclcpp::executors::MultiThreadedExecutor executor;
++	const int executorThreads = node->declare_parameter<int>("executor_threads", 2);
++	if(executorThreads < 1 || executorThreads > 32)
++	{
++		throw std::invalid_argument("executor_threads must be between 1 and 32");
++	}
++	rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), executorThreads);
+ 	executor.add_node(node);
+ 	executor.spin();
+ 	rclcpp::shutdown();

@@ -46,8 +46,8 @@ def events(data, mode='stereo'):
 def estimator_spec(config, mode):
     params = dict(use_sim_time=True, frame_id=FRAME, odom_frame_id='benchmark_odom', publish_tf=False,
                   publish_null_when_lost=False,
-                  approx_sync=False, qos=1, qos_imu=1, queue_size=400, sync_queue_size=60,
-                  output_queue_size=60, imu_queue_size=400,
+                  approx_sync=False, qos=1, qos_imu=1, topic_queue_size=10, sync_queue_size=10,
+                  output_queue_size=10, imu_queue_size=400, executor_threads=2,
                   wait_for_transform=.5, wait_imu_to_init=mode == 'vio',
                   **{'Odom/Strategy': '9', 'Reg/Force3DoF': 'false', 'OdomVINSFusion/ConfigPath': str(config),
                      'Rtabmap/ImagesAlreadyRectified': 'true', 'Odom/ResetCountdown': '0'})

@@ -37,7 +37,7 @@ setup(
         ('share/' + package_name, ['README.md', 'BASELINE.md', 'VINS.md', 'ACCEPTANCE.md', 'IMPLEMENTATION.md']),
         ('share/' + package_name + '/tools', [
             'tools/build_vins_overlay.sh', 'tools/rtabmap_vins_visual_health.patch',
-            'tools/rtabmap_vins_extrinsics.patch',
+            'tools/rtabmap_vins_extrinsics.patch', 'tools/rtabmap_odom_executor_threads.patch',
         ]),
     ],
     install_requires=['setuptools'],

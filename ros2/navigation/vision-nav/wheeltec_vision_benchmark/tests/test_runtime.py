@@ -181,3 +181,17 @@ def test_vio_skips_only_imu_unsupported_images_without_changing_raw_data(euroc, 
     vo_summary = json.loads(capsys.readouterr().out)
     assert vo_summary['playback_policy']['playable_stereo_frames'] == 5
     assert vo_summary['playback_policy']['excluded_stereo_frames'] == 0
+
+
+@pytest.mark.parametrize('mode', ['stereo', 'vio'])
+def test_estimator_bounds_callback_concurrency_and_image_backlog(mode):
+    from wheeltec_vision_benchmark.runtime import estimator_spec
+    params = estimator_spec('/config/vins.yaml', mode)['parameters'][0]
+    assert params['executor_threads'] == 2
+    assert params['topic_queue_size'] == 10
+    assert params['sync_queue_size'] == 10
+    assert params['output_queue_size'] == 10
+    assert 'queue_size' not in params
+    # High-rate IMU history is independent of the bounded image/output queues.
+    assert params['imu_queue_size'] == 400
+    assert params['approx_sync'] is False
