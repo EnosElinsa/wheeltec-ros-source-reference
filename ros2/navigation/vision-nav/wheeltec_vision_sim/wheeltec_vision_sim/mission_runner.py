@@ -2,6 +2,33 @@
 import argparse,json,math,random,subprocess,time
 from pathlib import Path
 
+NAVIGATION_NODES = ('controller_server', 'smoother_server', 'planner_server',
+                    'behavior_server', 'bt_navigator', 'waypoint_follower', 'velocity_smoother')
+
+
+def wait_navigation_active(clients, request, spin, timeout=45., clock=time.monotonic):
+    """Discovery alone does not mean Nav2 accepts goals; wait for fresh ACTIVE states."""
+    deadline=clock()+timeout
+    pending={}; states={}; queried={}
+    while clock()<deadline:
+        now=clock()
+        for name,client in clients.items():
+            future=pending.get(name)
+            if future is not None and future.done():
+                states[name]=(future.result().current_state.id,queried[name])
+                del pending[name]
+            if (name not in pending and now-queried.get(name,-math.inf)>=.2
+                    and client.service_is_ready()):
+                pending[name]=client.call_async(request())
+                queried[name]=now
+        if clients and all(name in states and states[name][0]==3 and now-states[name][1]<.5
+                           for name in clients):
+            return
+        spin(.05)
+    detail=', '.join(f'{name}={states.get(name,("unavailable",))[0]}' for name in clients)
+    raise RuntimeError('timeout waiting for all Nav2 lifecycle nodes ACTIVE: '+detail)
+
+
 def ign_service(service,request_type,response_type,request):
     result=subprocess.run(['ign','service','-s',service,'--reqtype',request_type,'--reptype',response_type,
         '--timeout','5000','--req',request],capture_output=True,text=True,timeout=10)
@@ -18,6 +45,7 @@ def main():
     from sensor_msgs.msg import Image,Imu
     from nav2_msgs.action import NavigateToPose
     from nav2_msgs.srv import ManageLifecycleNodes
+    from lifecycle_msgs.srv import GetState
     from ros_gz_interfaces.msg import Contacts
     from std_msgs.msg import Bool,String
     from std_srvs.srv import SetBool,Trigger
@@ -66,6 +94,8 @@ def main():
             self.fault_clients={n:self.create_client(SetBool,'/sim/fault/'+n) for n in ('vision','depth','imu')}
             self.rearm=self.create_client(Trigger,'/vision/rearm')
             self.manager=self.create_client(ManageLifecycleNodes,'/lifecycle_manager_navigation/manage_nodes')
+            self.lifecycle_clients={name:self.create_client(GetState,'/'+name+'/get_state')
+                for name in NAVIGATION_NODES} if args.command=='run' and args.mode=='localization' else {}
             self.goal=None
         def note(self,name,msg):
             self.stamps[name]=dict(stamp_ns=msg.header.stamp.sec*10**9+msg.header.stamp.nanosec,receipt_wall=time.monotonic())
@@ -161,6 +191,9 @@ def main():
         node.file=(out/'samples.jsonl').open('x',encoding='utf-8');rng=random.Random(args.seed);results=[]
         node.phase='startup';node.wait(lambda:node.ready,150,'startup readiness')
         node.wait(lambda:all(node.evidence.fresh(n,node.get_clock().now().nanoseconds,time.monotonic()) for n in ('gt','wheel',*CONTACT_SOURCES)),20,'all five contact streams and ground truth')
+        if args.mode=='localization':
+            wait_navigation_active(node.lifecycle_clients,GetState.Request,node.spin)
+            node.wait(lambda:node.ready,45,'healthy localization after Nav2 activation')
         alignment=node.initial_alignment() if args.mode=='localization' else None
         scenarios=tuple(s for s in SCENARIOS if s!=('route' if args.mode=='mapping' else 'motion')) if args.scenario=='all' else (args.scenario,)
         for scenario in scenarios:
