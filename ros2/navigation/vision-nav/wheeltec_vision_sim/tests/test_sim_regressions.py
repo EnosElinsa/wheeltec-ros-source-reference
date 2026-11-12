@@ -91,6 +91,31 @@ def test_native_expiry_requires_physical_stop_while_safe_commands_remain_nonzero
     assert not assess_fault(data,0,2,native_lease=True)['passed']
 
 
+@pytest.mark.parametrize('failure',['zero','stale','missing_age','negative_age','nan'])
+def test_native_expiry_rejects_prior_nonzero_then_zero_or_stale_in_stop_window(failure):
+    data=samples()
+    for sample in data:sample['safe_v']=.1
+    # Earlier live commands are insufficient if ROS zeros or disappears at any
+    # physical-stop observation sample. This must not claim a native-lease pass.
+    sample=data[2]
+    if failure=='zero':sample['safe_v']=0.
+    elif failure=='stale':sample['safe_age_s']=.5
+    elif failure=='missing_age':sample.pop('safe_age_s')
+    elif failure=='negative_age':sample['safe_age_s']=-.1
+    else:sample['safe_v']=math.nan
+    result=assess_fault(data,0,2,native_lease=True)
+    assert result['physical_stop']
+    assert not result['commands_remained_live']
+    assert not result['passed']
+
+
+def test_native_expiry_rejects_review_counterexample_early_nonzero_then_watchdog_zero():
+    data=samples()
+    for sample in data:sample['safe_v']=0.
+    data.insert(0,dict(data[0],wall=.6,safe_v=.1,safe_age_s=.05))
+    assert not assess_fault(data,0,2,native_lease=True)['passed']
+
+
 def test_action_success_at_wrong_truth_endpoint_cannot_pass_fixed_alignment():
     alignment=fixed_alignment((0,0,0),(-3,1,.2));goal=(1.,0.,.1)
     truth={'xyz':[-3+math.cos(.2),1+math.sin(.2),0.],

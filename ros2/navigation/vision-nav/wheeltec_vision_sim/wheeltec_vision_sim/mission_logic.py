@@ -47,7 +47,14 @@ def assess_fault(samples,onset,recovery,deadline=.55,require_latch=False,pause=F
     if pause:
         paused=[s for s in during if s.get('pause_expected',False)]
         result['paused_clock_stopped']=len(paused)>=2 and max(s['ros_ns'] for s in paused)==min(s['ros_ns'] for s in paused)
-    if native_lease:result['commands_remained_live']=any(abs(s['safe_v'])>.03 for s in during)
+    if native_lease:
+        # Prove the independent lease caused the measured stop: every sample in
+        # that same observation window must still see a fresh nonzero ROS input.
+        # A single earlier command followed by watchdog zero/stale output cannot
+        # establish the native boundary, even if the vehicle physically stopped.
+        result['commands_remained_live']=len(active_stop)>=2 and all(
+            math.isfinite(s.get('safe_v',math.nan)) and abs(s['safe_v'])>.03
+            and s.get('safe_age_s') is not None and 0<=s['safe_age_s']<.3 for s in active_stop)
     if require_latch:
         result['old_goal_blocked']=bool(after) and all(zero(s) and s.get('new_goal_required',False) for s in after)
     result['passed']=result['observed'] and (result['safe_zero'] or native_lease) and result['complete_fresh_evidence'] and result['physical_stop'] and not result['collisions'] and result.get('old_goal_blocked',True) and result.get('paused_clock_stopped',True) and result.get('commands_remained_live',True)
