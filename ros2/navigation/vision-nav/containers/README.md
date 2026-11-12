@@ -88,6 +88,20 @@ Retain download records and results separately from Git; datasets, images, build
 trees and full run logs do not belong in the source repository. Publication
 should contain compact measured reports, manifest hashes and reproducible commands.
 
+After each `run_euroc_suite.sh` has finished, combine its `suite.json` and raw
+timing CSVs into a new report. This preserves failed or missing runs, raw-data
+and artifact hashes, coverage, ATE/RPE, and P50/P95/P99 for received odometry
+age, estimator processing and stereo dispatch lateness. Negative/nonfinite
+timing values remain explicit counts; scoring a partial trajectory grants no
+algorithm or driving acceptance.
+
+```bash
+python3 /work/containers/summarize_euroc.py \
+  /work/results/euroc-mh01-001 /work/results/euroc-mh03-001 /work/results/euroc-mh05-001 \
+  --output /work/results/euroc-summary-001.json
+python3 /work/containers/summarize_sim.py /work/results/mapping-001
+```
+
 ## Session orchestration
 
 Run launch and mission in one container so discovery and teardown are shared:
