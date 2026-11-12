@@ -3,8 +3,13 @@ set -euo pipefail
 [[ "${ROS_DISTRO:-}" == humble ]] || { echo 'Run inside the Humble image' >&2; exit 2; }
 root="${WHEELTEC_WORK_ROOT:-/work}"
 export VINS_BUILD_JOBS="${VINS_BUILD_JOBS:-4}"
-if [[ ! -f "$root/vins_ws/install/local_setup.bash" ]]; then
+if [[ ! -f "$root/vins_ws/evidence/overlay.complete" ]]; then
+  if [[ -e "$root/vins_ws" ]]; then
+    echo "Previous overlay build is incomplete: inspect $root/vins_ws/evidence/build.log before resuming its build stages" >&2
+    exit 1
+  fi
   bash "$root/source/wheeltec_vision_nav/tools/build_vins_overlay.sh" "$root/vins_ws"
+  touch "$root/vins_ws/evidence/overlay.complete"
 fi
 set +u
 source "$root/vins_ws/install/local_setup.bash"

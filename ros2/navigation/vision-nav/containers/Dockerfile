@@ -4,6 +4,7 @@ FROM ${BASE_IMAGE}
 ARG DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 ROS_DISTRO=humble
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "60";\nAcquire::https::Timeout "60";\n' > /etc/apt/apt.conf.d/80wheeltec-retries
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl gnupg locales git build-essential cmake pkg-config \

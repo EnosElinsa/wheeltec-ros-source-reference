@@ -70,3 +70,28 @@ jobs:
         run: |
           g++ -std=c++14 -Wall -Wextra -pedantic -I ros2/robot/turn-on-wheeltec-robot/include ros2/robot/turn-on-wheeltec-robot/test/test_command_deadline.cpp -o /tmp/test-command-deadline
           /tmp/test-command-deadline
+
+  fortress-actuator:
+    runs-on: ubuntu-22.04
+    container: ros:humble-ros-base
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Fortress development libraries
+        shell: bash
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates curl gnupg python3-colcon-common-extensions
+          curl -fsSL --retry 3 https://packages.osrfoundation.org/gazebo.gpg -o /usr/share/keyrings/gazebo-archive-keyring.gpg
+          echo 'deb [signed-by=/usr/share/keyrings/gazebo-archive-keyring.gpg] https://packages.osrfoundation.org/gazebo/ubuntu-stable jammy main' > /etc/apt/sources.list.d/gazebo-stable.list
+          apt-get update
+          apt-get install -y libignition-gazebo6-dev libignition-plugin1-dev
+      - name: Build native actuator
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon --log-base /tmp/actuator-log build --base-paths ros2/navigation/vision-nav/wheeltec_sim_actuator --build-base /tmp/actuator-build --install-base /tmp/actuator-install --event-handlers console_direct+ --cmake-args -DBUILD_TESTING=ON
+          colcon --log-base /tmp/actuator-test-log test --base-paths ros2/navigation/vision-nav/wheeltec_sim_actuator --build-base /tmp/actuator-build --install-base /tmp/actuator-install --event-handlers console_direct+
+          colcon test-result --test-result-base /tmp/actuator-build --verbose
+          test -f /tmp/actuator-install/wheeltec_sim_actuator/lib/libwheeltec_sim_actuator.so
+          ldd /tmp/actuator-install/wheeltec_sim_actuator/lib/libwheeltec_sim_actuator.so > /tmp/actuator-ldd.txt
+          if grep -q 'not found' /tmp/actuator-ldd.txt; then cat /tmp/actuator-ldd.txt; exit 1; fi

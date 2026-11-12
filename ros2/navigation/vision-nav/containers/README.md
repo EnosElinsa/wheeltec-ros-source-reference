@@ -8,14 +8,18 @@ available GPU. The stock binary RTAB-Map does not include VINS support.
 ```bash
 export WHEELTEC_SIM_ROOT="$HOME/wheeltec_vision_sim"
 mkdir -p "$WHEELTEC_SIM_ROOT"/{source,data,results}
-# Copy the vision-nav package directories into source/ before building overlay.
 cd ros2/navigation/vision-nav/containers
+cp -a . "$WHEELTEC_SIM_ROOT/containers"
+for package in wheeltec_vision_nav wheeltec_tf_guard wheeltec_vision_benchmark wheeltec_vision_sim wheeltec_sim_actuator; do
+  cp -a "../$package" "$WHEELTEC_SIM_ROOT/source/"
+done
 sudo docker build -t wheeltec-vision-sim:humble-20261112 .
 # When the host requires a proxy, preserve only the required proxy variables:
 # sudo --preserve-env=HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy \
 #   docker build --network host --build-arg HTTP_PROXY --build-arg HTTPS_PROXY \
 #   --build-arg http_proxy --build-arg https_proxy -t wheeltec-vision-sim:humble-20261112 .
-sudo env WHEELTEC_SIM_ROOT="$WHEELTEC_SIM_ROOT" WHEELTEC_SIM_GPU=1 \
+sudo --preserve-env=HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy,NO_PROXY,no_proxy \
+  env WHEELTEC_SIM_ROOT="$WHEELTEC_SIM_ROOT" WHEELTEC_SIM_GPU=1 \
   bash run.sh bash /work/containers/build_overlay.sh
 ```
 
