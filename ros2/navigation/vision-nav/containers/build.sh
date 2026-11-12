@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build network may need the host loopback proxy. No simulation/actuator starts.
+# Host networking permits a loopback proxy. Build runs synthetic ROS middleware
+# tests on localhost-only domain 91; no hardware driver or Gazebo actuator starts.
 set -euo pipefail
 root="${WHEELTEC_SIM_ROOT:-$HOME/wheeltec_vision_sim}"
 [[ -f "$root/containers/build_overlay.sh" && -d "$root/source/wheeltec_vision_nav" ]] || {

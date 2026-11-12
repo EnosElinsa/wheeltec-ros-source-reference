@@ -29,9 +29,15 @@ resources. `nvidia-smi` validates mapping, while Gazebo camera output validates
 rendering. The shared host driver must remain compatible with the image; the
 container does not install or replace a host driver.
 
-The default runtime limits OpenMP/OpenCV pools to two threads and OpenBLAS to
-one, avoiding host-core-sized pools inside an eight-CPU quota. Record overrides
-alongside measured sim/wall ratio and input ages; keep safety deadlines enabled.
+The runtime requests two OpenMP/OpenCV threads and one OpenBLAS thread via
+`WHEELTEC_SIM_OMP_THREADS`, `WHEELTEC_SIM_OPENCV_THREADS` and
+`WHEELTEC_SIM_BLAS_THREADS`. These variables alone do not guarantee bounded pools:
+the tested OpenCV 4.5.4 ignored its environment limit and created 128 workers
+with host-wide affinity. An explicit `WHEELTEC_SIM_CPUSET=0-7` reduced its observed
+pool to eight. Choose available host CPUs and set `WHEELTEC_SIM_CPUSET` alongside
+the CPU quota; `--cpus` limits CPU time but does not restrict visible affinity.
+Record affinity, thread overrides, measured sim/wall ratio and input ages; keep
+safety deadlines enabled.
 
 The pinned VINS ROS 2 port requires the Ceres 2.1 manifold API. `build_ceres.sh`
 builds a pinned CPU-only shared library in the mounted experiment directory;
@@ -39,10 +45,22 @@ VINS and RTAB-Map use that prefix explicitly. Cached source and installed
 artifact identities are checked before reuse. Host and system Ceres packages
 are not replaced.
 
-`build.sh` starts no ROS processes and uses host networking so a loopback-bound
-host proxy can download fixed source dependencies. `run.sh` uses a separate
+`build.sh` uses host networking so a loopback-bound host proxy can download fixed
+source dependencies. Its overlay build also runs four real ROS middleware tests
+using synthetic safety-node inputs on fixed domain 91 with localhost-only DDS;
+reserve that domain while building. These tests start no hardware drivers or
+Gazebo actuator. `run.sh` uses a separate
 bridge network for actual experiments. All interacting experiment processes must
 run in the same container, because ROS_LOCALHOST_ONLY is enabled.
+
+Runtime launchers use the persistent `/work/leases` directory inside the shared
+work-root bind mount. Database ownership therefore locks the same inode across
+containers targeting the same canonical `/work` database path, independent of
+DDS domain. Do not remove lease files or replace that directory while sessions
+run; stale metadata is harmless because ownership is held by the OS process
+lock. World ownership is scoped to `IGN_PARTITION`, so independent transport
+partitions and databases can run concurrently. All containers sharing a database
+must use the same work-root mount and canonical database path.
 
 The ROS apt repository uses HTTP with the official GPG key and signed InRelease
 verification, because the repository HTTPS endpoint failed certificate-name
@@ -87,7 +105,11 @@ sudo env WHEELTEC_SIM_ROOT="$WHEELTEC_SIM_ROOT" WHEELTEC_SIM_GPU=1 \
 ```
 
 This runner stores launch/mission logs and exit codes and stops the process
-groups before returning. Repeats share one evolving pose; independent repeats
+groups before returning. `session.json` records unexpected launch exit and each
+shutdown signal/escalation. Session success requires mission exit 0, a launch
+alive until intentional teardown, launch exit 0 after SIGINT, and no TERM/KILL
+escalation. Mission observations remain saved when teardown fails; such a session
+must not authorize localization from a supposedly clean map. Repeats share one evolving pose; independent repeats
 require a new simulator launch and a fresh output directory. Preserve failed
 sessions. Resource quotas are experiment settings: the eight-CPU smoke ran below
 realtime and correctly triggered input deadlines. Raise the CPU quota or reduce

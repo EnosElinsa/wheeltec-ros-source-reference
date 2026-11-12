@@ -9,18 +9,27 @@ import subprocess
 import time
 
 
-def stop(process):
-    if process.poll() is None:
-        os.killpg(process.pid, signal.SIGINT)
+def stop(process, timeouts=(20., 5.)):
+    outcome = dict(exited_before_teardown=process.poll() is not None,
+                   signals=[], escalated=False, exit_code=process.returncode)
+    if outcome['exited_before_teardown']:
+        return outcome
+    for name, timeout in zip(('SIGINT', 'SIGTERM', 'SIGKILL'), (*timeouts, None)):
         try:
-            process.wait(timeout=20)
+            os.killpg(process.pid, getattr(signal, name))
+            outcome['signals'].append(name)
+        except ProcessLookupError:
+            # A launch may die between the last boundary check and the signal.
+            if not outcome['signals']:
+                outcome['exited_before_teardown'] = True
+        try:
+            process.wait(timeout=timeout)
+            break
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGTERM)
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
+            continue
+    outcome.update(exit_code=process.returncode,
+                   escalated=any(s != 'SIGINT' for s in outcome['signals']))
+    return outcome
 
 
 def main():
@@ -42,18 +51,24 @@ def main():
         '--scenario', args.scenario, '--repeats', '3',
         '--launch-manifest', str(out / 'launch' / 'manifest.json'),
         '--ros-args', '-p', 'use_sim_time:=true']
+    return run_session(out, launch_args, mission_args, out / 'launch' / 'manifest.json', args.timeout)
+
+
+def run_session(out, launch_args, mission_args, manifest, timeout, shutdown_timeouts=(20., 5.)):
     evidence = dict(launch_command=launch_args, mission_command=mission_args,
+        unexpected_launch_exit=False,
         started_utc=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         environment={k: os.environ.get(k) for k in ('ROS_DOMAIN_ID', 'IGN_PARTITION',
-            'OMP_NUM_THREADS', 'OPENCV_FOR_THREADS_NUM', 'OPENBLAS_NUM_THREADS')})
+            'WHEELTEC_SIM_LEASE_ROOT', 'OMP_NUM_THREADS', 'OPENCV_FOR_THREADS_NUM', 'OPENBLAS_NUM_THREADS')},
+        cpu_affinity=sorted(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else None)
     launch = mission = None
     started = time.monotonic()
     try:
         with (out / 'launch.log').open('x') as log, (out / 'mission.log').open('x') as mlog:
             launch = subprocess.Popen(launch_args, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-            manifest = out / 'launch' / 'manifest.json'
             while not manifest.is_file():
                 if launch.poll() is not None:
+                    evidence['unexpected_launch_exit'] = True
                     raise RuntimeError('launch exited before manifest; inspect launch.log')
                 if time.monotonic() - started > 30:
                     raise TimeoutError('launch did not prepare its manifest in 30 seconds')
@@ -61,22 +76,33 @@ def main():
             mission = subprocess.Popen(mission_args, stdout=mlog, stderr=subprocess.STDOUT, start_new_session=True)
             while mission.poll() is None:
                 if launch.poll() is not None:
+                    evidence['unexpected_launch_exit'] = True
                     raise RuntimeError('launch exited during experiment; inspect launch.log')
-                if time.monotonic() - started > args.timeout:
+                if time.monotonic() - started > timeout:
                     raise TimeoutError('experiment wall-clock deadline exceeded')
                 time.sleep(.2)
             evidence['mission_exit_code'] = mission.returncode
+            # Close the poll boundary: the mission can exit in the same interval
+            # as a crashing launch. Mission success alone is insufficient.
+            if launch.poll() is not None:
+                evidence['unexpected_launch_exit'] = True
+                raise RuntimeError('launch exited before intentional teardown; inspect launch.log')
     except (Exception, KeyboardInterrupt) as error:
         evidence['error'] = f'{type(error).__name__}: {error}'
     finally:
         if mission is not None:
-            stop(mission)
+            evidence['mission_shutdown'] = stop(mission, shutdown_timeouts)
+            evidence['mission_exit_code'] = mission.returncode
         if launch is not None:
-            stop(launch)
+            evidence['launch_shutdown'] = stop(launch, shutdown_timeouts)
+            evidence['unexpected_launch_exit'] |= evidence['launch_shutdown']['exited_before_teardown']
             evidence['launch_exit_code'] = launch.returncode
+        evidence['session_success'] = (evidence.get('mission_exit_code') == 0 and 'error' not in evidence
+            and not evidence['unexpected_launch_exit'] and evidence.get('launch_exit_code') == 0
+            and not evidence.get('launch_shutdown', {}).get('escalated', True))
         evidence['elapsed_wall_s'] = time.monotonic() - started
         (out / 'session.json').write_text(json.dumps(evidence, indent=2) + '\n')
-    return 0 if evidence.get('mission_exit_code') == 0 and 'error' not in evidence else 2
+    return 0 if evidence['session_success'] else 2
 
 
 if __name__ == '__main__':

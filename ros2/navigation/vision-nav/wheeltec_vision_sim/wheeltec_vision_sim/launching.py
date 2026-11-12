@@ -15,7 +15,7 @@ from wheeltec_vision_nav.launch_nodes import (rtabmap_node,
 from wheeltec_vision_nav.launch_utils import write_visual_nav_params
 from wheeltec_vision_nav.nav_params import bundled_runtime_config
 from wheeltec_vision_nav.runtime_config import safety_parameters
-from wheeltec_vision_nav.startup import ResourceLeases,database_resource
+from .leases import acquire_simulation_leases
 from wheeltec_vision_nav.launch_pipeline import supervised_processes
 
 
@@ -129,7 +129,7 @@ def build(mode,estimator,database,output,headless=True,reverse=False,geometry_fi
         tf_owners={'map->odom':'RTAB-Map','odom->base_footprint':'EKF','base->sensor':'robot_state_publisher'})
     (output/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     # Every failure tears down the whole group; actuator deadline remains last resort.
-    leases=ResourceLeases().acquire(['gazebo:wheeltec_room',database_resource(str(database))])
+    leases=acquire_simulation_leases(database)
     handlers=supervised_processes(leases,[n for n in nodes if n is not activation],None,[],[])
     if activation is not None:
         def activated(event,context):
