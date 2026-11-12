@@ -28,7 +28,7 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rtabmap_msgs.msg import OdomInfo
-from sensor_msgs.msg import CameraInfo, Image, PointCloud2
+from sensor_msgs.msg import CameraInfo, Image, Imu, PointCloud2
 from sensor_msgs_py.point_cloud2 import create_cloud_xyz32
 from std_msgs.msg import Bool, Header, String
 from tf2_ros import TransformBroadcaster
@@ -63,8 +63,11 @@ def tf_guard():
                 process.wait(timeout=5)
 
 
-def test_real_qos_tf_motion_gate_sensor_silence_cancellation_and_shutdown(tf_guard):
+@pytest.mark.parametrize("require_critical", [False, True], ids=["visual-only", "vio-critical-inputs"])
+def test_real_qos_tf_motion_gate_sensor_silence_cancellation_and_shutdown(tf_guard, require_critical):
+    required = "true" if require_critical else "false"
     rclpy.init(args=["--ros-args", "-p", "mode:=navigation", "-p", "wheel_backup:=false",
+                    "-p", f"require_wheel:={required}", "-p", f"require_imu:={required}",
                     "-p", "map_stale_s:=0.4"])
     watchdog = VoWatchdog()
     sensors = Node("vision_test_sensors")
@@ -74,6 +77,7 @@ def test_real_qos_tf_motion_gate_sensor_silence_cancellation_and_shutdown(tf_gua
     qos = QoSProfile(depth=2, reliability=ReliabilityPolicy.BEST_EFFORT)
     pub = {name: sensors.create_publisher(kind, topic, qos) for name, kind, topic in (
         ("vo", Odometry, "/odom_vo"), ("odom", Odometry, "/odom"),
+        ("wheel", Odometry, "/wheel/odom"), ("imu", Imu, "/vision/imu"),
         ("info", OdomInfo, "/odom_info_lite"), ("depth", Image, "/camera/depth/image_rect_raw"),
         ("cloud", PointCloud2, "/vision/depth_cloud"), ("obstacles", PointCloud2, "/vision/obstacles"),
         ("localization", PoseWithCovarianceStamped, "/localization_pose"))}
@@ -81,8 +85,14 @@ def test_real_qos_tf_motion_gate_sensor_silence_cancellation_and_shutdown(tf_gua
     goal_pub = sensors.create_publisher(GoalStatusArray, "/navigate_to_pose/_action/status",
         QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
     broadcaster = TransformBroadcaster(sensors)
-    outputs, health, ready, cancel_calls = [], [], [], []
-    sensors.create_subscription(Twist, "/cmd_vel_safe", lambda m: outputs.append((time.monotonic(), m.linear.x)), 5)
+    outputs, safe_commands, health, ready, cancel_calls = [], [], [], [], []
+
+    def on_safe_command(message):
+        received = time.monotonic()
+        outputs.append((received, message.linear.x))
+        safe_commands.append((received, message.linear.x, message.angular.z))
+
+    sensors.create_subscription(Twist, "/cmd_vel_safe", on_safe_command, 5)
     sensors.create_subscription(String, "/vision/health/status", lambda m: health.append(json.loads(m.data)), 5)
     sensors.create_subscription(Bool, "/vision/ready", lambda m: ready.append(m.data),
                                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
@@ -96,6 +106,7 @@ def test_real_qos_tf_motion_gate_sensor_silence_cancellation_and_shutdown(tf_gua
         sensors.create_service(CancelGoal, f"/{action}/_action/cancel_goal", cancel)
     send_cloud = [True]
     send_map_tf = [True]
+    send_critical = {"wheel": True, "imu": True}
 
     def publish():
         now = sensors.get_clock().now()
@@ -111,14 +122,24 @@ def test_real_qos_tf_motion_gate_sensor_silence_cancellation_and_shutdown(tf_gua
         map_transform.transform.rotation.w = 1.
         if send_map_tf[0]:
             broadcaster.sendTransform(map_transform)
-        for name in ("odom", "vo"):
+        for name in ("odom", "vo", "wheel"):
+            if name == "wheel" and not send_critical["wheel"]:
+                continue
             msg = Odometry()
-            msg.header = Header(stamp=stamp, frame_id="odom")
+            msg.header = Header(stamp=stamp, frame_id="wheel_odom" if name == "wheel" else "odom")
             msg.child_frame_id = "base_footprint"
             msg.pose.pose.orientation.w = 1.
             for index in (0, 7, 14, 21, 28, 35):
                 msg.pose.covariance[index] = msg.twist.covariance[index] = .01
             pub[name].publish(msg)
+        if send_critical["imu"]:
+            imu = Imu()
+            imu.header = Header(stamp=stamp, frame_id="imu_link")
+            imu.orientation_covariance[0] = -1.
+            for index in (0, 4, 8):
+                imu.angular_velocity_covariance[index] = .001
+                imu.linear_acceleration_covariance[index] = .01
+            pub["imu"].publish(imu)
         info = OdomInfo()
         info.header = Header(stamp=stamp, frame_id="base_footprint")
         info.inliers, info.lost = 40, False
@@ -148,11 +169,65 @@ def test_real_qos_tf_motion_gate_sensor_silence_cancellation_and_shutdown(tf_gua
         spin_until(executor, lambda: any(ready) and any(v > 0 for _, v in outputs))
         assert len(sensors.get_publishers_info_by_topic("/odom")) == 1
         assert len(sensors.get_publishers_info_by_topic("/cmd_vel_safe")) == 1
+        if require_critical:
+            assert watchdog.get_parameter("wheel_backup").value is False
+            for index, source in enumerate(("wheel", "imu")):
+                # Read accepted receipt times from real watchdog DDS callbacks;
+                # do not substitute subscriptions or inject controller evidence.
+                assert watchdog.safety.sources[source].valid
+                before_motion = len(safe_commands)
+                spin_until(executor, lambda: len(safe_commands) >= before_motion + 3
+                           and all(v > 0 for _, v, _ in safe_commands[-3:]))
+                old_acceptance = sensors.get_clock().now().to_msg()
+                cancellation_count = len(cancel_calls)
+                cut_at = time.monotonic()
+                send_critical[source] = False
+                spin_until(executor, lambda: any(t > cut_at and v == 0 and w == 0
+                                                 for t, v, w in safe_commands))
+                first_zero = next(t for t, v, w in safe_commands
+                                  if t > cut_at and v == 0 and w == 0)
+                last_receipt = watchdog.safety.sources[source].received
+                latency = first_zero - last_receipt
+                # .3s product deadline, two .05s timer/DDS dispatch turns, and
+                # an explicit 10ms wall-scheduler tolerance for this test only.
+                limit = .3 + 2 * .05 + .01
+                assert 0 <= latency <= limit, (source, latency, limit)
+                print(f"{source}: last DDS receipt to first zero command {latency:.6f}s; limit={limit:.3f}s", flush=True)
+                spin_until(executor, lambda: health[-1]["state"] == "STOPPED"
+                           and health[-1]["reason"] == f"{source}_invalid_or_stale")
+                assert health[-1]["new_goal_required"]
+                assert watchdog.safety.sources["vo"].received > cut_at
+                assert watchdog.safety.sources["visual"].received > cut_at
+                other = "imu" if source == "wheel" else "wheel"
+                assert watchdog.safety.sources[other].received > cut_at
+                spin_until(executor, lambda: len(cancel_calls) >= cancellation_count + 3)
+                send_critical[source] = True
+                spin_until(executor, lambda: health[-1]["state"] == "READY"
+                           and health[-1]["new_goal_required"]
+                           and not health[-1]["cancel_required"])
+                stale_goal = GoalStatus()
+                stale_goal.goal_info.goal_id.uuid = [10 + 2 * index] * 16
+                stale_goal.goal_info.stamp = old_acceptance
+                stale_goal.status = GoalStatus.STATUS_EXECUTING
+                goal_pub.publish(GoalStatusArray(status_list=[stale_goal]))
+                recovered_at = time.monotonic()
+                spin_until(executor, lambda: time.monotonic() - recovered_at > .2)
+                assert health[-1]["new_goal_required"]
+                held = [(v, w) for t, v, w in safe_commands if t > first_zero]
+                assert held and all((v, w) == (0., 0.) for v, w in held)
+                new_goal = GoalStatus()
+                new_goal.goal_info.goal_id.uuid = [11 + 2 * index] * 16
+                new_goal.goal_info.stamp = sensors.get_clock().now().to_msg()
+                new_goal.status = GoalStatus.STATUS_ACCEPTED
+                accepted_at = time.monotonic()
+                goal_pub.publish(GoalStatusArray(status_list=[new_goal]))
+                spin_until(executor, lambda: any(t > accepted_at and v > 0 for t, v in outputs))
         failed_at = time.monotonic()
+        cancellation_count = len(cancel_calls)
         old_acceptance = sensors.get_clock().now().to_msg()
         send_cloud[0] = False
         spin_until(executor, lambda: health and health[-1]["state"] == "STOPPED")
-        spin_until(executor, lambda: len(cancel_calls) >= 3)
+        spin_until(executor, lambda: len(cancel_calls) >= cancellation_count + 3)
         end = time.monotonic() + .4
         while time.monotonic() < end:
             executor.spin_once(timeout_sec=.01)
