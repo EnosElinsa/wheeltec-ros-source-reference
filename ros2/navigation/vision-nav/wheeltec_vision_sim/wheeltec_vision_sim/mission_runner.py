@@ -25,6 +25,7 @@ def main():
     from rclpy.time import Time
     from .mission_logic import (SCENARIOS,Evidence,CONTACT_SOURCES,assess_fault,resource_snapshot,
                                trial_evidence,physical_stop,fixed_alignment,pose2,route_result)
+    from .contacts import collision_count
     parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='command',required=True)
     sub.add_parser('activate');run=sub.add_parser('run');run.add_argument('--output',required=True)
     run.add_argument('--mode',choices=['mapping','localization'],default='mapping')
@@ -77,8 +78,7 @@ def main():
         def truth(self,msg):
             self.gt=msg;self.evidence.note('gt',msg.header.stamp.sec*10**9+msg.header.stamp.nanosec,time.monotonic())
         def contact(self,name,msg):
-            def floor(collision):return collision.name.startswith('floor::') or collision.name=='floor_collision'
-            self.contact_sources[name]=sum(not floor(c.collision1) and not floor(c.collision2) for c in msg.contacts)
+            self.contact_sources[name]=collision_count(msg.contacts)
             self.contacts=sum(self.contact_sources.values());self.contacts_seen=bool(self.contact_sources)
             self.evidence.note(name,msg.header.stamp.sec*10**9+msg.header.stamp.nanosec,time.monotonic(),self.contact_sources[name])
         def spin(self,duration,v=0.,w=0.,drive=False):

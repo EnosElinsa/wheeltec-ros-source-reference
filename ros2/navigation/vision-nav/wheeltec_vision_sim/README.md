@@ -111,6 +111,14 @@ Clock values retain the acquired integer nanoseconds; they are neither retimed
 to wall time nor rounded to the sampling period. A pause emits no repeated
 stationary clock; a backwards reset is published immediately even while paused.
 Safety watchdog and native command expiry remain wall-clock protections.
+Fortress's stock contact system publishes only nonempty events, so collision
+coverage uses native heartbeats from physics-populated `ContactSensorData` on
+all five real collision entities. Every physics-step hit is retained until the
+50 Hz heartbeat; empty messages represent observed no-contact physics data,
+never missing sensors. Publication requires every source component to exist.
+Contact names are recovered from real entity IDs when Fortress omits names.
+Only the exact generated `floor::link::floor_collision` identity is exempt as
+expected support; unknown names or obstacles containing "floor" still count.
 
 Run local core checks with `python -m pytest .../wheeltec_vision_sim/tests`.
 Run native math/deadline checks with `colcon test --packages-select

@@ -103,7 +103,7 @@ def _camera(link,g,name,kind,topic,transform):
 def world_sdf(g=Geometry()):
     root=ET.Element('sdf',version='1.8'); world=_tag(root,'world',name='wheeltec_room')
     physics=_tag(world,'physics',name='1ms',type='ignored'); _tag(physics,'max_step_size',.001); _tag(physics,'real_time_factor',1.)
-    for system in ('Physics','UserCommands','SceneBroadcaster','Imu','Contact'):
+    for system in ('Physics','UserCommands','SceneBroadcaster','Imu'):
         filename=''.join(('-'+c.lower() if c.isupper() else c) for c in system).lstrip('-')
         _plugin(world,'ignition-gazebo-'+filename+'-system','ignition::gazebo::systems::'+system)
     sensors=_plugin(world,'ignition-gazebo-sensors-system','ignition::gazebo::systems::Sensors'); _tag(sensors,'render_engine','ogre2')

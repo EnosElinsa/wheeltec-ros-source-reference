@@ -9,6 +9,10 @@
 #include <ignition/gazebo/Model.hh>
 #include <ignition/gazebo/components/JointPosition.hh>
 #include <ignition/gazebo/components/JointVelocity.hh>
+#include <ignition/gazebo/components/Collision.hh>
+#include <ignition/gazebo/components/ContactSensorData.hh>
+#include <ignition/gazebo/components/Name.hh>
+#include <ignition/gazebo/Util.hh>
 #include <ignition/gazebo/components/JointVelocityCmd.hh>
 #include <ignition/plugin/Register.hh>
 #include <ignition/transport/Node.hh>
@@ -16,6 +20,7 @@
 #include <ignition/msgs/model.pb.h>
 #include <ignition/msgs/boolean.pb.h>
 #include <ignition/msgs/clock.pb.h>
+#include <ignition/msgs/contacts.pb.h>
 #include <ignition/math/Rand.hh>
 #include "wheeltec_sim_actuator/kinematics.hh"
 #include "wheeltec_sim_actuator/simulation_clock.hh"
@@ -29,6 +34,12 @@ class Actuator final : public System, public ISystemConfigure, public ISystemPre
   ignition::transport::Node::Publisher jointPublisher;
   ignition::transport::Node::Publisher clockPublisher;
   SimulationClock simulationClock;
+  std::array<ignition::transport::Node::Publisher,5> contactPublishers;
+  std::array<Entity,5> collisions{};
+  std::array<ignition::msgs::Contacts,5> contactWindow;
+  const std::array<std::string,5> contactLinks{{"base_footprint","rear_left_wheel","rear_right_wheel","front_left_wheel","front_right_wheel"}};
+  const std::array<std::string,5> contactNames{{"chassis_collision","rear_left_collision","rear_right_collision","front_left_collision","front_right_collision"}};
+  const std::array<std::string,5> contactTopics{{"/sim/contacts","/sim/contacts/rear_left","/sim/contacts/rear_right","/sim/contacts/front_left","/sim/contacts/front_right"}};
   std::chrono::steady_clock::duration lastJointTime{-std::chrono::seconds(1)};
   std::mutex mutex;
   CommandLease lease;
@@ -74,6 +85,8 @@ class Actuator final : public System, public ISystemConfigure, public ISystemPre
     transport.Subscribe("/sim/actuator/drop_commands", &Actuator::Drop, this);
     jointPublisher=transport.Advertise<ignition::msgs::Model>("/sim/joints");
     clockPublisher=transport.Advertise<ignition::msgs::Clock>("/sim/clock");
+    for (size_t i=0;i<contactPublishers.size();++i)
+      contactPublishers[i]=transport.Advertise<ignition::msgs::Contacts>(contactTopics[i]);
   }
   void PreUpdate(const UpdateInfo &info, EntityComponentManager &ecm) override {
     double v=0,w=0;
@@ -84,6 +97,17 @@ class Actuator final : public System, public ISystemConfigure, public ISystemPre
     // Never hold a nonzero actuator setpoint across a paused update. On resume the
     // first PreUpdate expires a missing command before the physics step executes.
     if (info.paused) v=w=0;
+    for (size_t i=0;i<collisions.size();++i) {
+      if (!collisions[i]) {
+        const auto link=model.LinkByName(ecm,contactLinks[i]);
+        auto entities=ecm.ChildrenByComponents(link,components::Collision(),components::Name(contactNames[i]));
+        if (!entities.empty()) collisions[i]=entities.front();
+      }
+      // Request actual physics contact collection; absent entity/data cannot
+      // create an empty heartbeat or qualify as collision-free evidence.
+      if (collisions[i] && !ecm.Component<components::ContactSensorData>(collisions[i]))
+        ecm.CreateComponent(collisions[i],components::ContactSensorData());
+    }
     for (size_t i=0; i<joints.size(); ++i) {
       if (!joints[i]) joints[i]=model.JointByName(ecm,names[i]);
       if (!joints[i]) return;
@@ -110,7 +134,26 @@ class Actuator final : public System, public ISystemConfigure, public ISystemPre
       clockPublisher.Publish(clock);
     }
     if (info.paused) return;
-    if (info.simTime < lastJointTime) lastJointTime=info.simTime-std::chrono::seconds(1);
+    if (info.simTime < lastJointTime) {
+      lastJointTime=info.simTime-std::chrono::seconds(1);
+      for (auto &pending:contactWindow) pending.Clear();
+    }
+    // Observe contacts at every physics step and retain hits until the 50Hz
+    // heartbeat. A one-step impact must not vanish between publication ticks.
+    for (size_t i=0;i<collisions.size();++i) {
+      auto data=ecm.Component<components::ContactSensorData>(collisions[i]);
+      if (!collisions[i] || !data) {
+        for (auto &pending:contactWindow) pending.Clear();
+        return;  // absent physics sources cannot manufacture free-space evidence
+      }
+      for (const auto &source:data->Data().contact()) {
+        auto contact=contactWindow[i].add_contact();contact->CopyFrom(source);
+        contact->mutable_header()->mutable_stamp()->set_sec(ns/1000000000);
+        contact->mutable_header()->mutable_stamp()->set_nsec(ns%1000000000);
+        for (auto entity:{contact->mutable_collision1(),contact->mutable_collision2()})
+          if (entity->name().empty()) entity->set_name(removeParentScope(scopedName(entity->id(),ecm,"::",0),"::"));
+      }
+    }
     if (info.simTime-lastJointTime<std::chrono::milliseconds(20)) return;
     ignition::msgs::Model msg;
     msg.mutable_header()->mutable_stamp()->set_sec(ns/1000000000);
@@ -125,6 +168,10 @@ class Actuator final : public System, public ISystemConfigure, public ISystemPre
       joint->mutable_axis1()->set_velocity(velocity->Data()[0]);
     }
     jointPublisher.Publish(msg);lastJointTime=info.simTime;
+    for (size_t i=0;i<contactWindow.size();++i) {
+      contactWindow[i].mutable_header()->mutable_stamp()->CopyFrom(msg.header().stamp());
+      contactPublishers[i].Publish(contactWindow[i]);contactWindow[i].Clear();
+    }
   }
 };
 }
