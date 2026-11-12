@@ -67,6 +67,7 @@ class VoWatchdog(Node):
         self._cfg = self.safety.cfg
         self._clouds = {"cloud": np.empty((0, 3)), "obstacles": np.empty((0, 3))}
         # Covers a complete 848x480 cloud decimated by four before voxel filtering.
+        self._cloud_pending = {"cloud": [], "obstacles": []}
         self._cloud_max_points = int(self.declare_parameter("cloud_max_points", 100000).value)
         self._last_status_time = -1.0
         self._last_ros_time = None
@@ -161,26 +162,78 @@ class VoWatchdog(Node):
             self._note("depth", msg, False)
 
     def _on_cloud(self, msg, name):
+        now = time.monotonic()
+        ros_now = self.get_clock().now().nanoseconds
         try:
-            if msg.width * msg.height > self._cloud_max_points:
+            count = msg.width * msg.height
+            if count < 0 or count > self._cloud_max_points:
                 raise ValueError("cloud too large for safety processing budget")
-            rows = list(point_cloud2.read_points(msg, field_names=("x", "y", "z"), skip_nans=False))
-            points = np.array([tuple(row) for row in rows], dtype=float).reshape(-1, 3)
-            if not np.isfinite(points).all() or (name == "cloud" and len(points) < 9):
+            if name == "cloud" and count < 9:
                 raise ValueError("invalid depth cloud")
-            transform = self._tf.lookup_transform("odom", msg.header.frame_id,
-                                                  Time.from_msg(msg.header.stamp))
-            points = transform_points(points, transform.transform)
-            if self._note(name, msg):
-                self._clouds[name] = points
-                self._input_errors.pop(name, None)
-            elif not self.safety.sources[name].valid:
-                self._remember_error(name, ValueError(
-                    f"rejected acquisition stamp {stamp_ns(msg.header.stamp)}; "
-                    f"ROS now {self.get_clock().now().nanoseconds}"))
-        except (TransformException, ValueError, TypeError, IndexError, KeyError) as error:
+            age = (ros_now - stamp_ns(msg.header.stamp)) / 1e9
+            if not -self._cfg.future_tolerance_s <= age < self.safety.timeout(name):
+                raise ValueError("cloud acquisition stamp outside freshness deadline")
+        except (ValueError, TypeError) as error:
             self._note(name, msg, False)
             self._remember_error(name, error)
+            return
+        # Keep at most eight original messages per source. A cloud can arrive
+        # just before its exact TF; pending data grants no freshness or motion.
+        pending = self._cloud_pending[name]
+        pending.append((msg, now, ros_now))
+        del pending[:-8]
+        self._retry_clouds(name)
+
+    def _retry_clouds(self, source=None):
+        now = time.monotonic()
+        ros_now = self.get_clock().now().nanoseconds
+        names = (source,) if source else ("cloud", "obstacles")
+        for name in names:
+            retained = []
+            accepted = self.safety.sources.get(name)
+            accepted_stamp = accepted.stamp_ns if accepted else -1
+            # Prefer the newest transformable acquisition; never replay an old
+            # point cloud after a newer one has already become safety evidence.
+            for msg, received, receipt_ros in reversed(self._cloud_pending[name]):
+                stamp = stamp_ns(msg.header.stamp)
+                timeout = self.safety.timeout(name)
+                if (stamp < accepted_stamp or now - received >= timeout
+                        or not -self._cfg.future_tolerance_s <= (ros_now - stamp) / 1e9 < timeout
+                        or ros_now < receipt_ros):
+                    continue
+                try:
+                    # No blocking timeout: TF callbacks must remain able to run.
+                    transform = self._tf.lookup_transform("odom", msg.header.frame_id,
+                                                          Time.from_msg(msg.header.stamp))
+                except TransformException as error:
+                    self._remember_error(name, error)
+                    retained.append((msg, received, receipt_ros))
+                    continue
+                try:
+                    rows = point_cloud2.read_points(msg, field_names=("x", "y", "z"), skip_nans=False)
+                    if isinstance(rows, np.ndarray) and rows.dtype.names:
+                        # Humble returns a structured NumPy array. Copy fields
+                        # in bulk, including padded/nonadjacent XYZ layouts.
+                        points = np.column_stack((rows["x"], rows["y"], rows["z"]))
+                    else:
+                        points = np.asarray(list(rows), dtype=float).reshape(-1, 3)
+                    if not np.isfinite(points).all() or (name == "cloud" and len(points) < 9):
+                        raise ValueError("invalid depth cloud")
+                    points = transform_points(points, transform.transform)
+                    # Preserve both original acquisition and original receipt.
+                    # Retrying cannot restart either freshness deadline.
+                    if self.safety.note(name, stamp, received, ros_now_ns=receipt_ros):
+                        self._clouds[name] = points
+                        self._input_errors.pop(name, None)
+                        accepted_stamp = stamp
+                except (ValueError, TypeError, IndexError, KeyError, AssertionError) as error:
+                    self._note(name, msg, False)
+                    self._remember_error(name, error)
+                    # A known malformed newest acquisition must invalidate
+                    # evidence; an older pending message cannot clear it.
+                    accepted_stamp = stamp
+            self._cloud_pending[name] = [item for item in reversed(retained)
+                                         if stamp_ns(item[0].header.stamp) > accepted_stamp]
 
     def _remember_error(self, source, error):
         if not hasattr(self, "_input_errors"):
@@ -266,6 +319,7 @@ class VoWatchdog(Node):
             if delta_ros < 0 or abs(delta_ros - delta_wall) > .5:
                 self.safety.clock_reset()
         self._last_ros_time, self._last_wall_time = ros_now, now
+        self._retry_clouds()
         if now - self._last_graph_check >= .2:
             self._last_graph_check = now
             self._ownership_valid = all(len(self.get_publishers_info_by_topic(topic)) == 1

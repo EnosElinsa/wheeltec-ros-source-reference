@@ -97,6 +97,7 @@ def node_for(adapter):
     node._goal_boundary = GoalAcceptanceBoundary()
     node._fault_episode = False
     node._cancellations, node._cancel_clients, node._cancel_futures = {}, {}, {}
+    node._cloud_pending = {"cloud": [], "obstacles": []}
     node._cloud_max_points = 100000
     node._clouds = {
         "cloud": np.array([(x, y / 100., 0.) for x in (1., 1.5, 2.) for y in range(-200, 201, 5)]),
@@ -246,3 +247,99 @@ def test_map_lookup_failure_keeps_odom_tf_evidence_and_reports_actual_source(ada
     assert node.safety.sources['tf'].valid
     assert not node.safety.sources['map_tf'].valid
     assert node._input_errors['map_tf']['message']=='missing map epoch'
+
+
+def cloud_message(node, delta_ns=1):
+    return NS(header=NS(stamp=stamp(node.ros_now + delta_ns), frame_id='camera'),
+              width=9, height=1, points=[(1., 0., .2)] * 9)
+
+
+def test_future_tf_retries_original_cloud_without_refreshing_its_receipt(adapter):
+    node = node_for(adapter)
+    msg = cloud_message(node)
+    received = node.now
+    previous_stamp = node.safety.sources['cloud'].stamp_ns
+    parsed = []
+    adapter.point_cloud2.read_points = lambda msg, **kwargs: parsed.append(True) or msg.points
+    def missing(*args):
+        raise adapter.TransformException('19ms before exact TF')
+    node._tf.lookup_transform = missing
+    node._on_cloud(msg, 'cloud')
+    assert parsed == []  # Do not parse thousands of points while TF is unavailable.
+    assert node.safety.sources['cloud'].stamp_ns == previous_stamp
+    assert node.safety.sources['cloud'].valid
+    node.now += .05
+    node.ros_now += 50_000_000
+    node._tf.lookup_transform = lambda *args: transform(node.ros_now)
+    node._retry_clouds()
+    evidence = node.safety.sources['cloud']
+    assert evidence.stamp_ns == adapter.stamp_ns(msg.header.stamp)
+    assert evidence.received == received
+    assert parsed == [True] and node._cloud_pending['cloud'] == []
+    assert evidence.fresh(received + .29, .3)
+    assert not evidence.fresh(received + .31, .3)
+
+
+@pytest.mark.parametrize('clock', ['wall', 'ros', 'backward'])
+def test_pending_cloud_cannot_gain_freshness_after_deadline_or_clock_reset(adapter, clock):
+    node = node_for(adapter)
+    msg = cloud_message(node)
+    previous = node.safety.sources['cloud'].stamp_ns
+    def missing(*args):
+        raise adapter.TransformException('not available yet')
+    node._tf.lookup_transform = missing
+    node._on_cloud(msg, 'cloud')
+    if clock == 'wall':
+        node.now += .31  # Paused simulation does not extend the wall deadline.
+    elif clock == 'ros':
+        node.ros_now += 310_000_000
+    else:
+        node.ros_now -= 1
+    node._tf.lookup_transform = lambda *args: transform(node.ros_now)
+    node._retry_clouds()
+    assert node.safety.sources['cloud'].stamp_ns == previous
+    assert node._cloud_pending['cloud'] == []
+
+
+def test_cloud_pending_storage_is_bounded_and_newest_valid_points_win(adapter):
+    node = node_for(adapter)
+    def missing(*args):
+        raise adapter.TransformException('not available yet')
+    node._tf.lookup_transform = missing
+    for i in range(20):
+        node._on_cloud(cloud_message(node, i + 1), 'cloud')
+    assert len(node._cloud_pending['cloud']) == 8
+    newest = node._cloud_pending['cloud'][-1][0]
+    node._tf.lookup_transform = lambda *args: transform(node.ros_now)
+    node._retry_clouds()
+    assert node.safety.sources['cloud'].stamp_ns == adapter.stamp_ns(newest.header.stamp)
+    assert node._cloud_pending['cloud'] == []
+
+
+def test_structured_numpy_cloud_uses_xyz_fields_with_padding_and_reordering(adapter):
+    node = node_for(adapter)
+    msg = cloud_message(node)
+    dtype = np.dtype({'names': ['z', 'rgb', 'x', 'y'],
+                      'formats': ['f4', 'u4', 'f4', 'f4'],
+                      'offsets': [0, 4, 12, 20], 'itemsize': 32})
+    rows = np.zeros(9, dtype=dtype)
+    rows['x'], rows['y'], rows['z'] = 1., .25, .5
+    adapter.point_cloud2.read_points = lambda *args, **kwargs: rows
+    node._on_cloud(msg, 'cloud')
+    assert np.allclose(node._clouds['cloud'], [[1., .25, .5]] * 9)
+    assert node.safety.sources['cloud'].valid
+
+
+def test_newest_malformed_cloud_cannot_be_cleared_by_older_pending_data(adapter):
+    node = node_for(adapter)
+    def missing(*args):
+        raise adapter.TransformException('not available yet')
+    node._tf.lookup_transform = missing
+    node._on_cloud(cloud_message(node, 1), 'cloud')
+    bad = cloud_message(node, 2)
+    bad.points = [(math.nan, 0., .2)] * 9
+    node._on_cloud(bad, 'cloud')
+    node._tf.lookup_transform = lambda *args: transform(node.ros_now)
+    node._retry_clouds()
+    assert not node.safety.sources['cloud'].valid
+    assert node._cloud_pending['cloud'] == []
