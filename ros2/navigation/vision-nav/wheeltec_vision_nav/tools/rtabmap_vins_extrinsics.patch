@@ -1,0 +1,14 @@
+diff --git a/corelib/src/odometry/OdometryVINSFusion.cpp b/corelib/src/odometry/OdometryVINSFusion.cpp
+--- a/corelib/src/odometry/OdometryVINSFusion.cpp
++++ b/corelib/src/odometry/OdometryVINSFusion.cpp
+@@ -215,8 +215,8 @@
+ 			UASSERT(!cam0cam1.isNull());
+ 			Transform imuCam1 = imuCam0 * cam0cam1;
+ 
+-			tic[1] = TIC[0] = Vector3d(imuCam1.x(), imuCam1.y(), imuCam1.z());
+-			ric[1] = RIC[0] = imuCam1.toEigen4d().block<3,3>(0,0);
++			tic[1] = TIC[1] = Vector3d(imuCam1.x(), imuCam1.y(), imuCam1.z());
++			ric[1] = RIC[1] = imuCam1.toEigen4d().block<3,3>(0,0);
+ 		}
+ 
+ 		for (int i = 0; i < NUM_OF_CAM; i++)

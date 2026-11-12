@@ -67,6 +67,10 @@ source "$HOME/vins_eval_ws/install/local_setup.bash"
 
 此外应用本包 `tools/rtabmap_vins_visual_health.patch`：上游内点统计会包含滑窗里的历史观测，补丁仅将当前图像仍在观测的已求解特征计为内点；当前图像尚未被求解器处理时不沿用旧位姿发布成功。补丁及 SHA256 保存在构建 evidence 中。这里只修正输出与诊断，不改变估计器调度；若 IMU 不及时导致积压，实验会记录跟踪丢失，不能视为正常视觉传播。该补丁同样尚待 ROS 编译和遮挡场景验证。
 
+仿真实施中另加入 `tools/rtabmap_vins_extrinsics.patch`，修正固定后端初始化右相机时误写左侧全局 `TIC[0]/RIC[0]` 的索引。两侧的局部数组原先不同于被误写的全局数组，补丁使右侧全局与局部外参都写入索引 1；补丁哈希保存到 evidence，须随编译与 EuRoC 回归一起验证。
+
+公开数据集使用独立的 `wheeltec_vision_benchmark` 包，仿真使用 `wheeltec_vision_sim`；不通过修改本节实车传感器审计来放行合成数据。教程和实测记录维护在 [教材的视觉导航仿真实验](https://enoselinsa.github.io/wheeltec-ros-textbook/08-advanced-applications/vision-simulation-lab/)。
+
 ## 2. 录制同一组原始数据
 
 在实车通常使用的 ROS 域内，使用新数据库路径启动现有采集链路，增加右红外：

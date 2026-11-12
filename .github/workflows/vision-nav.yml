@@ -21,7 +21,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -r requirements-dev.txt opencv-python-headless psutil
       - run: python -m pytest -q
-      - run: python -m compileall -q ros2/navigation/vision-nav/wheeltec_vision_nav
+      - run: python -m compileall -q ros2/navigation/vision-nav/wheeltec_vision_nav ros2/navigation/vision-nav/wheeltec_vision_benchmark ros2/navigation/vision-nav/wheeltec_vision_sim
 
   humble:
     runs-on: ubuntu-22.04
@@ -36,15 +36,17 @@ jobs:
         shell: bash
         run: |
           apt-get update
-          apt-get install -y python3-pytest python3-numpy python3-yaml python3-psutil python3-opencv python3-colcon-common-extensions g++ cmake ros-humble-ament-cmake ros-humble-rclcpp ros-humble-rtabmap-msgs ros-humble-tf2-ros ros-humble-sensor-msgs-py ros-humble-diagnostic-msgs ros-humble-action-msgs
+          apt-get install -y python3-pytest python3-numpy python3-yaml python3-psutil python3-opencv python3-matplotlib python3-colcon-common-extensions g++ cmake ros-humble-ament-cmake ros-humble-rclcpp ros-humble-rtabmap-msgs ros-humble-tf2-ros ros-humble-sensor-msgs-py ros-humble-diagnostic-msgs ros-humble-action-msgs
       - name: Build and test installed Python package
         shell: bash
         run: |
           source /opt/ros/humble/setup.bash
           python3 -c "from catkin_pkg.package import parse_package; package = parse_package('ros2/navigation/vision-nav/wheeltec_vision_nav/package.xml'); assert package.get_build_type() == 'ament_python'"
-          colcon --log-base /tmp/vision-log build --base-paths ros2/navigation/vision-nav/wheeltec_tf_guard ros2/navigation/vision-nav/wheeltec_vision_nav --build-base /tmp/vision-build --install-base /tmp/vision-install --packages-select wheeltec_tf_guard wheeltec_vision_nav
+          colcon --log-base /tmp/vision-log build --base-paths ros2/navigation/vision-nav/wheeltec_tf_guard ros2/navigation/vision-nav/wheeltec_vision_nav ros2/navigation/vision-nav/wheeltec_vision_benchmark ros2/navigation/vision-nav/wheeltec_vision_sim --build-base /tmp/vision-build --install-base /tmp/vision-install --packages-select wheeltec_tf_guard wheeltec_vision_nav wheeltec_vision_benchmark wheeltec_vision_sim
           source /tmp/vision-install/setup.bash
           ros2 pkg executables wheeltec_vision_nav
+          ros2 pkg executables wheeltec_vision_benchmark
+          ros2 pkg executables wheeltec_vision_sim
           python3 -m pytest -q
           cd /tmp
           python3 - <<'PY'
