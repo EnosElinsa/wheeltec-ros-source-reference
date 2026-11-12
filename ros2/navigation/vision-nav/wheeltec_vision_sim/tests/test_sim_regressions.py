@@ -116,6 +116,16 @@ def test_native_expiry_rejects_review_counterexample_early_nonzero_then_watchdog
     assert not assess_fault(data,0,2,native_lease=True)['passed']
 
 
+def test_native_expiry_rejects_sparse_stop_observation_coverage():
+    data=samples()
+    for sample in data:sample['safe_v']=.1
+    data=[sample for sample in data if sample['wall'] not in (1.2,1.5)]
+    result=assess_fault(data,0,2,native_lease=True)
+    assert result['physical_stop']
+    assert not result['native_observation_coverage']
+    assert not result['passed']
+
+
 def test_action_success_at_wrong_truth_endpoint_cannot_pass_fixed_alignment():
     alignment=fixed_alignment((0,0,0),(-3,1,.2));goal=(1.,0.,.1)
     truth={'xyz':[-3+math.cos(.2),1+math.sin(.2),0.],

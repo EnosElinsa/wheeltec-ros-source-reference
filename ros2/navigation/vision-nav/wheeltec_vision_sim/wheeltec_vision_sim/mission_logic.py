@@ -52,7 +52,13 @@ def assess_fault(samples,onset,recovery,deadline=.55,require_latch=False,pause=F
         # that same observation window must still see a fresh nonzero ROS input.
         # A single earlier command followed by watchdog zero/stale output cannot
         # establish the native boundary, even if the vehicle physically stopped.
-        result['commands_remained_live']=len(active_stop)>=2 and all(
+        ordered=sorted(active_stop,key=lambda s:s['wall'])
+        coverage=(len(ordered)>=3 and ordered[-1]['wall']-ordered[0]['wall']>=.5
+            and ordered[0]['wall']-(onset+max(deadline,.85))<=.25
+            and recovery-ordered[-1]['wall']<=.25
+            and all(b['wall']-a['wall']<=.35 for a,b in zip(ordered,ordered[1:])))
+        result['native_observation_coverage']=coverage
+        result['commands_remained_live']=coverage and all(
             math.isfinite(s.get('safe_v',math.nan)) and abs(s['safe_v'])>.03
             and s.get('safe_age_s') is not None and 0<=s['safe_age_s']<.3 for s in active_stop)
     if require_latch:
