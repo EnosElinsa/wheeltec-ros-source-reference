@@ -155,10 +155,13 @@ sudo env WHEELTEC_SIM_ROOT="$WHEELTEC_SIM_ROOT" WHEELTEC_SIM_GPU=1 \
 ```
 
 This creates a new mapping database and sends no motion commands. Schema 2
-records callback freshness continuously, clock progress, source validity,
+records callback freshness continuously, clock progress, source health snapshots,
 stationary wheel observations, raw safe-command receipt times, violation events,
 1 Hz resource snapshots and source/manifest hashes. A missed deadline remains a
 failure after recovery. The session records startup/recorder errors and bounded
 teardown. A complete stationary run does not measure moving Nav2 control load,
 acquisition-to-actuator latency or real-vehicle performance. Legacy schema 1
 records lack the new receipt coverage; they cannot be upgraded retrospectively.
+Source states/ages are evaluated when each health snapshot arrives; extrapolating
+an old snapshot cannot prove that the underlying input stopped between reports.
+Continuous direct source coverage requires separate input subscriptions.

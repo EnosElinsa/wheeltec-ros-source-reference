@@ -45,4 +45,20 @@
 
 ## 实施结果
 
-进行中。正式结果在完成实测后填写。
+已实现 EuRoC、简化车辆、生产导航/保护链复用、原生执行器超时、受限容器、故障运行器和教材发布入口。实际结果与边界如下，算法未通过项保留，未用放宽保护阈值替代修复。
+
+| 项目 | 实际证据 |
+| --- | --- |
+| 本地逻辑回归 | 667 passed，8 个 ROS opt-in / Windows POSIX 环境跳过 |
+| ROS / 原生集成 | Humble 实际保护集成 4 项、POSIX 退出 7 项、执行器 CTest 1/1 通过；CI 覆盖 Linux/Windows Python 3.10/3.12、Humble 和 Fortress |
+| EuRoC 原速 | MH01/MH03/MH05，VO/VIO 各三次，共 18 次保留评分及原始哈希；原 VIO 有严重发散，未通过精度验收 |
+| VIO 噪声单位对照 | 另外三次 MH01 的 ATE 0.0388/0.0872/0.0952 m，但覆盖率 47.15/86.91/88.51%；首次输出提前 79.05 s 中止，稳定性未通过 |
+| Gazebo 建图 | baseline、stereo、vio 在统一纹理房间各 24/24，通过且地图正常关闭 |
+| Gazebo 地图定位与 Nav2 | 三模式各 24/24，通过；独立真值终点误差 0.170–0.192 m，预定容差 0.25 m / 0.25 rad；无碰撞 |
+| 静止持续记录 | schema 1 采集 1800.001 s，35999 条零速，指令间隔 P99 54.18 ms；原记录器首样误报一次，保留原 false，不能作为完整持续验收 |
+| 记录器修复 | schema 2 新 30 s ROS smoke 通过；持续检查安全指令、轮速和时钟，源状态只解释为健康快照；保留旧失败证据 |
+| 实车与扩展场景 | 标定/同步/制动、窄通道/长路线/弱纹理、目标车载平台运动负载仍待测量 |
+
+六次通过的建图和导航会话分别为 mapping-all-05、mapping-stereo-02、mapping-vio-02、localization-baseline-04、localization-stereo-01、localization-vio-05。每个会话八场景、各三次，共 144 项；三次沿用一个持续演化姿态，尚非三个独立初始状态。
+
+正式教程与紧凑 JSON/图表维护在 [wheeltec-ros-textbook 仿真实验](https://enoselinsa.github.io/wheeltec-ros-textbook/08-advanced-applications/vision-simulation-lab/)和[实际实验记录](https://enoselinsa.github.io/wheeltec-ros-textbook/08-advanced-applications/vision-simulation-results/)。数据集、完整日志、构建目录和数据库保留在独立实验目录，避免进入源码仓库。短时传输探针虽完整收流，不能排除 VINS 长时负载下的停止输出。
