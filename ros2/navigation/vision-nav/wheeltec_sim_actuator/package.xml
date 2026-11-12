@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<package format="3"><name>wheeltec_sim_actuator</name><version>0.1.0</version>
+<description>Fortress Ackermann joint actuator with an independent monotonic command deadline.</description>
+<maintainer email="maintainer@example.com">Wheeltec textbook contributors</maintainer><license>Apache-2.0</license>
+<buildtool_depend>ament_cmake</buildtool_depend><depend>ignition-gazebo6</depend><depend>ignition-plugin1</depend>
+<export><build_type>ament_cmake</build_type></export></package>
