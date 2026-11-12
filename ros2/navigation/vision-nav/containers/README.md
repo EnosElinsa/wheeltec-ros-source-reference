@@ -102,6 +102,13 @@ python3 /work/containers/summarize_euroc.py \
 python3 /work/containers/summarize_sim.py /work/results/mapping-001
 ```
 
+The suite takes an optional sequence (or `all`) and mode (`all`, `stereo`,
+`vio`). For a controlled VIO-only repetition, use a new directory:
+
+```bash
+bash /work/containers/run_euroc_suite.sh /work/results/mh03-vio-001 MH_03_medium vio
+```
+
 ## Session orchestration
 
 Run launch and mission in one container so discovery and teardown are shared:

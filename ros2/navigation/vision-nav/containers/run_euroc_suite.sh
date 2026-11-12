@@ -8,10 +8,15 @@ case "${2:-all}" in
   MH_01_easy|MH_03_medium|MH_05_difficult) sequences=("$2");;
   *) echo 'Second argument must be all or an implemented EuRoC sequence' >&2; exit 2;;
 esac
+case "${3:-all}" in
+  all) modes=(stereo vio);;
+  stereo|vio) modes=("$3");;
+  *) echo 'Third argument must be all, stereo or vio' >&2; exit 2;;
+esac
 mkdir "$group" || exit 2
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-87}" ROS_LOCALHOST_ONLY=1
 for sequence in "${sequences[@]}"; do
-  for mode in stereo vio; do
+  for mode in "${modes[@]}"; do
     for repeat in 1 2 3; do
       name="$sequence-$mode-$repeat"
       timeout --signal=INT --kill-after=30s 600s ros2 launch wheeltec_vision_benchmark euroc.launch.py \
