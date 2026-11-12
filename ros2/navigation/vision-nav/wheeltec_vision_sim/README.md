@@ -24,7 +24,12 @@ ros2 launch wheeltec_vision_sim sim.launch.py \
 ```
 
 `estimator:=stereo` / `estimator:=vio` select the VINS backend. Generated configs,
-SDF, TF URDF and a manifest are saved inside `output`. Override geometry, sensor
+SDF, TF URDF, deterministic PNG textures and a manifest are saved inside `output`.
+Five distinct seeded albedo maps cover the entire floor and all four walls;
+asymmetric high-contrast corners provide features around the 0.32 m camera
+height in every heading. Five smaller unique maps texture the solid landmarks. These
+materials use the existing ten static box visuals, keeping draw calls bounded
+and collision geometry unchanged. No Fuel service or image download is needed. Override geometry, sensor
 xyz/rpy, rates and noise using `geometry:=/absolute/path/geometry.yaml`; the
 installed `config/geometry.yaml` lists all fields. Noise is synthetic, and
 estimator covariance floors are conservative heuristics, not calibrated error.

@@ -3,6 +3,8 @@ from dataclasses import dataclass, asdict
 import math
 from pathlib import Path
 import random
+import struct
+import zlib
 import xml.etree.ElementTree as ET
 from .extrinsics import transforms,rpy
 
@@ -63,7 +65,7 @@ def _tag(parent,tag_name,text=None,**attributes):
     return child
 
 
-def _shape(link, name, size, pose='0 0 0 0 0 0', color='.5 .5 .5 1', collision=True, cylinder=False):
+def _shape(link, name, size, pose='0 0 0 0 0 0', color='.5 .5 .5 1', collision=True, cylinder=False, texture=None):
     for kind in (('collision','visual') if collision else ('visual',)):
         item=_tag(link,kind,name=name+'_'+kind); _tag(item,'pose',pose)
         geometry=_tag(item,'geometry')
@@ -72,6 +74,9 @@ def _shape(link, name, size, pose='0 0 0 0 0 0', color='.5 .5 .5 1', collision=T
         else: _tag(_tag(geometry,'box'),'size',' '.join(map(str,size)))
         if kind=='visual':
             material=_tag(item,'material'); _tag(material,'ambient',color); _tag(material,'diffuse',color)
+            if texture:
+                metal=_tag(_tag(material,'pbr'),'metal')
+                _tag(metal,'albedo_map',texture); _tag(metal,'metalness',0); _tag(metal,'roughness',1)
         else:
             ode=_tag(_tag(_tag(item,'surface'),'friction'),'ode'); _tag(ode,'mu',1.0); _tag(ode,'mu2',1.0)
 
@@ -100,7 +105,39 @@ def _camera(link,g,name,kind,topic,transform):
         clip=_tag(_tag(camera,'depth_camera'),'clip'); _tag(clip,'near',.15); _tag(clip,'far',6.)
 
 
-def world_sdf(g=Geometry()):
+def texture_png(seed, width=2048, height=512):
+    """High-contrast nonperiodic corner patterns, generated without image libraries."""
+    rng=random.Random(seed)
+    pixels=bytearray(bytes((220,220,215))*(width*height))
+    def rectangle(x,y,w,h,color):
+        row=bytes(color)*w
+        for v in range(y,min(y+h,height)):
+            start=(v*width+x)*3; pixels[start:start+len(row)]=row
+    # Stratification covers every patch of surface. Independent position, size,
+    # color and corner notches avoid a repeating checkerboard correspondence.
+    for y in range(0,height-40,40):
+        for x in range(0,width-40,40):
+            left=x+rng.randrange(3,12); top=y+rng.randrange(3,12)
+            w,h=rng.randrange(14,26),rng.randrange(14,26)
+            color=tuple(rng.randrange(15,70) for _ in range(3))
+            rectangle(left,top,w,h,color)
+            notch=rng.randrange(4)
+            rectangle(left+(w//2 if notch&1 else 0),top+(h//2 if notch&2 else 0),w//2,h//2,(220,220,215))
+    def chunk(kind,data):
+        return struct.pack('!I',len(data))+kind+data+struct.pack('!I',zlib.crc32(kind+data)&0xffffffff)
+    raw=b''.join(b'\0'+pixels[y*width*3:(y+1)*width*3] for y in range(height))
+    return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('!2I5B',width,height,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b'')
+
+
+def write_textures(directory,g=Geometry()):
+    directory=Path(directory); directory.mkdir(parents=True,exist_ok=True)
+    for i,name in enumerate(('floor','north','south','east','west')):
+        (directory/(str(g.seed)+'-'+name+'.png')).write_bytes(texture_png(g.seed*65537+i,height=2048 if name=='floor' else 512))
+    for i in range(5):
+        (directory/(str(g.seed)+'-landmark_'+str(i)+'.png')).write_bytes(texture_png(g.seed*65537+5+i,256,256))
+
+
+def world_sdf(g=Geometry(),texture_directory='textures'):
     root=ET.Element('sdf',version='1.8'); world=_tag(root,'world',name='wheeltec_room')
     physics=_tag(world,'physics',name='1ms',type='ignored'); _tag(physics,'max_step_size',.001); _tag(physics,'real_time_factor',1.)
     for system in ('Physics','UserCommands','SceneBroadcaster','Imu'):
@@ -109,25 +146,18 @@ def world_sdf(g=Geometry()):
     sensors=_plugin(world,'ignition-gazebo-sensors-system','ignition::gazebo::systems::Sensors'); _tag(sensors,'render_engine','ogre2')
     scene=_tag(world,'scene'); _tag(scene,'ambient','.6 .6 .6 1'); _tag(scene,'background','.15 .18 .2 1')
     light=_tag(world,'light',name='sun',type='directional'); _tag(light,'pose','0 0 8 0 0 0'); _tag(light,'diffuse','.9 .9 .9 1'); _tag(light,'direction','-.3 -.4 -1')
-    # Irregular high contrast geometric tiles provide actual image texture without
-    # a network Fuel dependency or repeating checkerboard correspondence aliases.
-    rng=random.Random(g.seed)
-    def box(name,xyz,size,color):
+    # Each complete surface has a distinct seeded PNG rather than thousands of
+    # individual draw calls. Texture affects rendering only, never collision.
+    texture_directory=Path(texture_directory)
+    def box(name,xyz,size,color,texture=None):
         model=_tag(world,'model',name=name); _tag(model,'static','true'); _tag(model,'pose',' '.join(map(str,xyz))+' 0 0 0')
-        _shape(_tag(model,'link',name='link'),name,size,color=color)
-    box('floor',(0,0,-.06),(12,10,.1),'.65 .65 .62 1')
+        _shape(_tag(model,'link',name='link'),name,size,color=color,texture=texture)
+    box('floor',(0,0,-.06),(12,10,.1),'1 1 1 1',str(texture_directory/(str(g.seed)+'-floor.png')))
     for name,xyz,size in [('north',(0,5,1.5),(12,.15,3)),('south',(0,-5,1.5),(12,.15,3)),
                           ('east',(6,0,1.5),(.15,10,3)),('west',(-6,0,1.5),(.15,10,3))]:
-        box(name,xyz,size,'.7 .73 .76 1')
-    textures=_tag(world,'model',name='seeded_texture'); _tag(textures,'static','true'); textured=_tag(textures,'link',name='texture')
-    for i in range(360):
-        c=' '.join(str(rng.uniform(.04,.92)) for _ in range(3))+' 1'
-        if i<150: xyz=(rng.uniform(-5.8,5.8),rng.uniform(-4.8,4.8),-.008); size=(rng.uniform(.05,.4),rng.uniform(.05,.4),.002)
-        elif i<255: xyz=(rng.uniform(-5.8,5.8),4.918,rng.uniform(.15,2.8)); size=(rng.uniform(.08,.45),.004,rng.uniform(.08,.4))
-        else: xyz=(5.918,rng.uniform(-4.8,4.8),rng.uniform(.15,2.8)); size=(.004,rng.uniform(.08,.45),rng.uniform(.08,.4))
-        _shape(textured,'tile_'+str(i),size,pose=' '.join(map(str,xyz))+' 0 0 0',color=c,collision=False)
+        box(name,xyz,size,'1 1 1 1',str(texture_directory/(str(g.seed)+'-'+name+'.png')))
     for i,(x,y) in enumerate(((2,1.8),(0,3.5),(-2,-1.8),(3.8,-2.2),(-4,2))):
-        box('landmark_'+str(i),(x,y,.55),(.45,.55,1.1),f'{.1+i*.13} {.8-i*.12} .35 1')
+        box('landmark_'+str(i),(x,y,.55),(.45,.55,1.1),f'{.1+i*.13} {.8-i*.12} .35 1',str(texture_directory/(str(g.seed)+'-landmark_'+str(i)+'.png')))
     model=_tag(world,'model',name='wheeltec'); _tag(model,'pose','-3 0 0 0 0 0')
     body=_tag(model,'link',name='base_footprint'); _inertia(body,8,(g.length,g.width,g.height))
     _tag(body.find('inertial'),'pose',f'{g.wheelbase/2} 0 {g.radius+g.height/2} 0 0 0')
@@ -202,5 +232,6 @@ def robot_urdf(g=Geometry()):
 def write_model(directory,g=Geometry()):
     directory=Path(directory); directory.mkdir(parents=True,exist_ok=True)
     sdf=directory/'room.sdf'; urdf=directory/'robot.urdf'
-    sdf.write_text(world_sdf(g),encoding='utf-8'); urdf.write_text(robot_urdf(g),encoding='utf-8')
+    write_textures(directory/'textures',g)
+    sdf.write_text(world_sdf(g,(directory/'textures').resolve()),encoding='utf-8'); urdf.write_text(robot_urdf(g),encoding='utf-8')
     return sdf,urdf

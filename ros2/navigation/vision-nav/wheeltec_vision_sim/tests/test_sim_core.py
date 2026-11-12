@@ -42,7 +42,8 @@ def test_model_has_real_joints_distinct_gt_and_deterministic_texture():
     assert text!=world_sdf(Geometry(seed=18))
     model=root.find("world/model[@name='wheeltec']")
     assert len(model.findall('joint'))==6
-    assert len(root.findall("world/model[@name='seeded_texture']/link/visual"))==360
+    assert len(root.findall('.//material/pbr/metal/albedo_map'))==10
+    assert root.find("world/model[@name='seeded_texture']") is None
     assert len(model.findall("link[@name='base_footprint']/sensor"))==4
     plugins={p.attrib['name']:p for p in model.findall('plugin')}
     assert plugins['wheeltec::Actuator'].findtext('timeout')=='.25' or float(plugins['wheeltec::Actuator'].findtext('timeout'))==.25
@@ -142,3 +143,39 @@ def test_urdf_and_sdf_joint_origins_match_physical_vehicle():
     front=list(map(float,urdf.find("joint[@name='steer_left_joint']/origin").attrib['xyz'].split()))
     assert front[0]-rear[0]==pytest.approx(Geometry().wheelbase)
     assert front[1]==rear[1]==Geometry().track/2
+
+
+def test_all_room_surfaces_have_dense_unique_seeded_texture_without_extra_collisions(tmp_path):
+    import struct, zlib
+    from wheeltec_vision_sim.model import write_model, texture_png
+    sdf, _ = write_model(tmp_path, Geometry(seed=17))
+    root = ET.fromstring(sdf.read_text())
+    assert all(__import__('pathlib').Path(m.text).is_file() for m in root.findall('.//albedo_map'))
+    surfaces = ('floor', 'north', 'south', 'east', 'west')
+    hashes = []
+    for name in surfaces:
+        model = root.find(f"world/model[@name='{name}']")
+        assert len(model.findall('link/visual')) == len(model.findall('link/collision')) == 1
+        uri = model.findtext('link/visual/material/pbr/metal/albedo_map')
+        path = tmp_path / 'textures' / ('17-' + name + '.png')
+        assert uri == str(path.resolve()) and path.is_file()
+        data = path.read_bytes()
+        assert data[:8] == b'\x89PNG\r\n\x1a\n'
+        width, height = struct.unpack('!II', data[16:24])
+        assert width == 2048 and height == (2048 if name == 'floor' else 512)
+        chunks = []; offset = 8
+        while offset < len(data):
+            size = struct.unpack('!I', data[offset:offset+4])[0]
+            if data[offset+4:offset+8] == b'IDAT':
+                chunks.append(data[offset+8:offset+8+size])
+            offset += size+12
+        rows = np.frombuffer(zlib.decompress(b''.join(chunks)), dtype=np.uint8).reshape(height, width*3+1)
+        assert np.all(rows[:, 0] == 0)
+        pixels = rows[:, 1:].reshape(height, width, 3)
+        # Strong luminance edges cover each wall and nearby floor uniformly.
+        assert np.mean(np.max(pixels, axis=2) < 70) > .1
+        assert np.mean(np.min(pixels, axis=2) > 210) > .5
+        hashes.append(data)
+    assert len(set(hashes)) == 5
+    assert texture_png(17) == texture_png(17)
+    assert texture_png(17) != texture_png(18)
