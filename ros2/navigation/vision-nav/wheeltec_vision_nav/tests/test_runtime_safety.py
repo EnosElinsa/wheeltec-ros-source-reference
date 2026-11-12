@@ -21,8 +21,8 @@ def feed(controller, now, *, visual=True, omit=(), speed=0.0, lost=False):
         controller.note_visual(stamp, now, lost, 0 if lost else 40)
 
 
-def ready(**kwargs):
-    controller = SafetyController(SafetyConfig(wheel_backup=True, **kwargs))
+def ready(*, wheel_backup=True, **kwargs):
+    controller = SafetyController(SafetyConfig(wheel_backup=wheel_backup, **kwargs))
     for index in range(14):
         now = index / 10
         feed(controller, now)
@@ -62,6 +62,46 @@ def test_critical_failure_stops_even_with_healthy_vo(source):
     feed(controller, later, omit=(source,))
     result = drive(controller, later)
     assert result.state == STOPPED and result.vx == 0 and result.cancel_required
+
+
+@pytest.mark.parametrize("source", ["wheel", "imu"])
+def test_required_vio_sensor_stops_at_critical_deadline_without_backup(source):
+    controller, now = ready(wheel_backup=False, require_wheel=True, require_imu=True)
+    assert drive(controller, now).vx > 0
+    deadline = controller.timeout(source)
+    assert deadline == .3
+    # VO and every other input remain healthy; only this sensor stops arriving.
+    for elapsed in (.1, .2, deadline - .001):
+        feed(controller, now + elapsed, omit=(source,))
+        result = drive(controller, now + elapsed)
+        assert result.state == READY and result.vx > 0
+    # nextafter avoids representing 1.3 + .3 just below the exact deadline.
+    later = math.nextafter(now + deadline, math.inf)
+    feed(controller, later, omit=(source,))
+    result = drive(controller, later)
+    assert result.state == STOPPED and (result.vx, result.wz) == (0., 0.)
+    assert result.reason == f"{source}_invalid_or_stale"
+    assert result.cancel_required and result.new_goal_required
+
+
+def test_required_vio_sensors_do_not_authorize_visual_loss_backup():
+    controller, now = ready(wheel_backup=False, require_wheel=True, require_imu=True)
+    feed(controller, now + .1, lost=True)
+    result = drive(controller, now + .1)
+    assert result.state == STOPPED and (result.vx, result.wz) == (0., 0.)
+    assert result.reason == "visual_invalid_or_stale"
+
+
+@pytest.mark.parametrize("options,expected", [
+    ({}, set()),
+    ({"require_wheel": True}, {"wheel"}),
+    ({"require_imu": True}, {"imu"}),
+    ({"supervised_reverse": True}, {"wheel"}),
+    ({"wheel_backup": True}, {"wheel", "imu"}),
+])
+def test_sensor_requirements_are_independent_of_backup_policy(options, expected):
+    required = set(SafetyController(SafetyConfig(**options))._required())
+    assert required & {"wheel", "imu"} == expected
 
 
 def test_completely_silent_visual_output_uses_bounded_backup():

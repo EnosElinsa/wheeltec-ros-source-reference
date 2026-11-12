@@ -105,9 +105,9 @@ class VoWatchdog(Node):
         self.create_subscription(PointCloud2, "/vision/depth_cloud", lambda m: self._on_cloud(m, "cloud"), qos)
         self.create_subscription(PointCloud2, "/vision/obstacles", lambda m: self._on_cloud(m, "obstacles"), qos)
         self.create_subscription(DiagnosticArray, "/vision/tf_authority", self._on_tf_authority, qos)
-        if self._cfg.wheel_backup or self._cfg.supervised_reverse:
+        if self._cfg.require_wheel or self._cfg.wheel_backup or self._cfg.supervised_reverse:
             self.create_subscription(Odometry, "/wheel/odom", self._on_wheel, qos)
-        if self._cfg.wheel_backup:
+        if self._cfg.require_imu or self._cfg.wheel_backup:
             self.create_subscription(Imu, "/vision/imu", self._on_imu, qos)
         if self._cfg.mode == "navigation":
             self.create_subscription(PoseWithCovarianceStamped,

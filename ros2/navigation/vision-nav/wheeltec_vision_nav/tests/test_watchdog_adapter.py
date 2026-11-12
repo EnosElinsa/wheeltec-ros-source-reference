@@ -369,9 +369,21 @@ def test_early_rejected_cloud_cannot_be_cleared_by_older_pending_acquisition(ada
     assert 'cloud' in node._input_errors
 
 
-def test_watchdog_bounds_unread_dynamic_tf_but_retains_static_history(adapter, monkeypatch):
+@pytest.mark.parametrize('backup,wheel,imu,reverse,expected', [
+    (False, False, False, False, set()),
+    (False, True, False, False, {'/wheel/odom'}),
+    (False, False, True, False, {'/vision/imu'}),
+    (False, True, True, False, {'/wheel/odom', '/vision/imu'}),
+    (False, False, False, True, {'/wheel/odom'}),
+    (True, False, False, False, {'/wheel/odom', '/vision/imu'}),
+])
+def test_watchdog_sensor_subscriptions_and_tf_history(
+        adapter, monkeypatch, backup, wheel, imu, reverse, expected):
     class FakeConfig:
-        wheel_backup = supervised_reverse = False
+        wheel_backup = backup
+        supervised_reverse = reverse
+        require_wheel = wheel
+        require_imu = imu
         mode = 'mapping'
     class FakeQos:
         def __init__(self, **kwargs):
@@ -384,11 +396,12 @@ def test_watchdog_bounds_unread_dynamic_tf_but_retains_static_history(adapter, m
     monkeypatch.setattr(adapter, 'DurabilityPolicy', NS(VOLATILE='volatile', TRANSIENT_LOCAL='transient'))
     monkeypatch.setattr(adapter, 'ClockType', NS(STEADY_TIME='steady'))
     captured = []
+    subscriptions = set()
     monkeypatch.setattr(adapter, 'TransformListener', lambda *args, **kwargs: captured.append(kwargs))
     class StubNode(adapter.VoWatchdog):
         def declare_parameter(self, name, value): return NS(value=value)
         def create_publisher(self, *args): return NS(publish=lambda msg: None)
-        def create_subscription(self, *args): pass
+        def create_subscription(self, message, topic, *args): subscriptions.add(topic)
         def create_service(self, *args): pass
         def create_timer(self, *args, **kwargs): pass
     node = StubNode()
@@ -396,3 +409,4 @@ def test_watchdog_bounds_unread_dynamic_tf_but_retains_static_history(adapter, m
     assert qos.depth == 10 and qos.reliability == 'reliable' and qos.durability == 'volatile'
     assert 'static_qos' not in captured[0]
     assert node._cloud_pending == {'cloud': [], 'obstacles': []}
+    assert subscriptions & {'/wheel/odom', '/vision/imu'} == expected

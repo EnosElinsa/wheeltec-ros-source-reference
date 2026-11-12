@@ -37,6 +37,54 @@ def test_shared_safety_defaults_are_complete_and_match_the_guard(runtime):
         validate_runtime_config(runtime)
 
 
+@pytest.mark.parametrize("name", ["require_wheel", "require_imu"])
+@pytest.mark.parametrize("value", [None, "true", 1])
+def test_required_sensor_flags_are_mandatory_booleans(runtime, name, value):
+    if value is None:
+        del runtime["safety"][name]
+        match = "SafetyConfig"
+    else:
+        runtime["safety"][name] = value
+        match = f"safety.{name} must have type bool"
+    with pytest.raises(ValueError, match=match):
+        validate_runtime_config(runtime)
+
+
+@pytest.mark.parametrize("mode", ["mapping", "localization"])
+@pytest.mark.parametrize("estimator", ["baseline", "stereo", "vio"])
+def test_sim_launch_monitors_vio_sensors_without_backup_or_double_fusion(
+        launch_utils, monkeypatch, tmp_path, mode, estimator):
+    import importlib.util
+    import json
+    from types import SimpleNamespace as NS
+
+    monkeypatch.setattr(sys.modules["ament_index_python.packages"], "get_package_prefix",
+                        lambda name: str(tmp_path), raising=False)
+    node_type = sys.modules["launch_ros.actions"].Node
+    monkeypatch.setattr(sys.modules["launch_ros.actions"], "SetParameter", node_type, raising=False)
+    path = ROOT.parent / "wheeltec_vision_sim/wheeltec_vision_sim/launching.py"
+    spec = importlib.util.spec_from_file_location("wheeltec_vision_sim.launching_test", path)
+    launching = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(launching)
+    monkeypatch.setattr(launching, "write_model", lambda *args: (tmp_path / "world.sdf", None))
+    monkeypatch.setattr(launching, "vins_config", lambda *args: "vins.yaml")
+    monkeypatch.setattr(launching, "acquire_simulation_leases", lambda *args: NS())
+    monkeypatch.setattr(launching, "supervised_processes", lambda *args: [])
+    database = tmp_path / "map.db"
+    database.touch()
+    output = tmp_path / "run"
+    actions = launching.build(mode, estimator, database, output)
+    nodes = {action.kwargs.get("executable"): action for action in actions}
+    manifest = json.loads((output / "manifest.json").read_text())
+    guard = nodes["vo_watchdog"].kwargs["parameters"][-1]
+    for settings in (guard, manifest["safety"]):
+        assert settings["wheel_backup"] is (estimator != "vio")
+        assert settings["require_wheel"] is (estimator == "vio")
+        assert settings["require_imu"] is (estimator == "vio")
+    ekf = nodes["ekf_node"].kwargs["parameters"][0]
+    assert any(key.startswith("imu0") for key in ekf) is (estimator != "vio")
+
+
 @pytest.mark.parametrize("source,start_base,hold,expected", [
     ("auto", False, False, "vo_only"), ("auto", True, False, "ekf"),
     ("auto", True, True, "vo_only"), ("vo_only", True, True, "vo_only"),

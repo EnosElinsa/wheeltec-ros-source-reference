@@ -74,6 +74,9 @@ def command_is_stale(last_cmd_time: float, now: float, timeout_s: float) -> bool
 class SafetyConfig:
     mode: str = "navigation"
     wheel_backup: bool = False
+    # Critical input monitoring is independent of permission to degrade on VO loss.
+    require_wheel: bool = False
+    require_imu: bool = False
     require_depth: bool = True
     min_inliers: int = 10
     vo_timeout_s: float = 0.5
@@ -300,9 +303,9 @@ class SafetyController:
         required = ["odom", "tf", "tf_authority", "ownership"]
         if self.cfg.require_depth:
             required += ["depth", "cloud", "obstacles"]
-        if self.cfg.wheel_backup or self.cfg.supervised_reverse:
+        if self.cfg.require_wheel or self.cfg.wheel_backup or self.cfg.supervised_reverse:
             required += ["wheel"]
-        if self.cfg.wheel_backup:
+        if self.cfg.require_imu or self.cfg.wheel_backup:
             required += ["imu"]
         if self.cfg.mode == "navigation":
             required += ["localization", "map_tf"]

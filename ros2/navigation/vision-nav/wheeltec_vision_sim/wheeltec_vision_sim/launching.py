@@ -72,7 +72,10 @@ def build(mode,estimator,database,output,headless=True,reverse=False,geometry_fi
     sdf,_=write_model(output,g)
     cfg=effective_runtime(bundled_runtime_config(),g,reverse)
     safe=safety_parameters(cfg,localization=mode=='localization',odom_source='ekf',supervised_reverse=reverse)
-    if estimator=='vio':safe['wheel_backup']=False  # no IMU-correlated degraded fallback
+    if estimator=='vio':
+        # Monitor raw critical inputs even though correlated VIO/IMU loss cannot
+        # authorize wheel backup. The EKF still excludes independent IMU fusion.
+        safe.update(wheel_backup=False,require_wheel=True,require_imu=True)
     bridge=Node(package='ros_gz_bridge',executable='parameter_bridge',name='sim_bridge',output='screen',
                 arguments=bridge_specs(),remappings=bridge_remappings())
     actuator_lib=str(Path(get_package_prefix('wheeltec_sim_actuator'))/'lib')
