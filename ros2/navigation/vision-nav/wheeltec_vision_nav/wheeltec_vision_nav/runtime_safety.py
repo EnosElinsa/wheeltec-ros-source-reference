@@ -45,7 +45,12 @@ def transform_points(points, transform):
         [2*(x*z-y*w), 2*(y*z+x*w), 1-2*(x*x+y*y)],
     ])
     with np.errstate(over="ignore", invalid="ignore"):
-        result = points @ rotation.T + np.array([p.x, p.y, p.z])
+        # This is fixed 3D geometry, not a large matrix solve. BLAS GEMM can
+        # dispatch dozens of worker threads for every cloud and starve the ROS
+        # callbacks whose freshness authorizes motion. Explicit einsum keeps
+        # the same rotation in NumPy's bounded, single-threaded element loop.
+        result = np.einsum('ij,kj->ik', points, rotation, optimize=False)
+        result += np.array([p.x, p.y, p.z])
     if not np.isfinite(result).all():
         raise ValueError("nonfinite transformed points")
     return result

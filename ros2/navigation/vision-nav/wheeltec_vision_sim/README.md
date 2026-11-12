@@ -119,6 +119,13 @@ never missing sensors. Publication requires every source component to exist.
 Contact names are recovered from real entity IDs when Fortress omits names.
 Only the exact generated `floor::link::floor_collision` identity is exempt as
 expected support; unknown names or obstacles containing "floor" still count.
+The mission runner limits command publication to 20 Hz wall time. The production
+watchdog's full geometry evaluation runs only on its 20 Hz steady timer, so a
+command burst cannot multiply cloud transforms or starve sensor/TF callbacks.
+Zero, invalid or blocked commands still publish zero immediately; nonzero input
+requires the next complete safety evaluation within 50 ms. Fixed 3D cloud
+rotation avoids a multithreaded BLAS matrix dispatch. Health includes actual
+input-error sources/messages and wall duration per safety tick for profiling.
 
 Run local core checks with `python -m pytest .../wheeltec_vision_sim/tests`.
 Run native math/deadline checks with `colcon test --packages-select

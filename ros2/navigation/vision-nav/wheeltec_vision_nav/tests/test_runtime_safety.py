@@ -43,6 +43,17 @@ def test_startup_without_evidence_is_fail_closed():
     assert result.state == INITIALIZING and result.vx == 0
 
 
+def test_fixed_3d_cloud_transform_matches_independent_quaternion_rotation():
+    from types import SimpleNamespace as NS
+    import numpy as np
+    from wheeltec_vision_nav.runtime_safety import transform_points
+    angle=.7;c,s=math.cos(angle),math.sin(angle)
+    points=np.random.default_rng(17).normal(size=(20000,3))
+    tf=NS(translation=NS(x=2.,y=-1.,z=.3),rotation=NS(x=0.,y=0.,z=math.sin(angle/2),w=math.cos(angle/2)))
+    expected=np.column_stack((c*points[:,0]-s*points[:,1]+2,s*points[:,0]+c*points[:,1]-1,points[:,2]+.3))
+    assert np.allclose(transform_points(points,tf),expected,rtol=1e-12,atol=1e-12)
+
+
 @pytest.mark.parametrize("source", ["wheel", "imu", "odom", "depth", "cloud", "obstacles", "tf", "tf_authority", "ownership", "localization", "map_tf"])
 def test_critical_failure_stops_even_with_healthy_vo(source):
     controller, now = ready()

@@ -91,6 +91,7 @@ def node_for(adapter):
     node.get_publishers_info_by_topic = lambda topic: [object()]
     node._last_ros_time = node._last_wall_time = None
     node._last_graph_check = node._last_status_time = -1.
+    node._input_errors = {}
     node._tf_authors = {}
     node._seen_goals, node._blocked_goals = set(), set()
     node._goal_boundary = GoalAcceptanceBoundary()
@@ -201,3 +202,47 @@ def test_tick_braking_uses_stale_obstacles_despite_fresh_cloud(adapter):
     protected = node.cmd_pub.messages[-1].linear.x
     optimistic = node.safety.step(node.now, clearance_m=.15, observed_range_m=2., observation_age_s=0.)
     assert 0 < protected < optimistic.vx
+
+
+def test_command_burst_does_not_run_geometry_or_publish_ungated_motion(adapter):
+    node = node_for(adapter)
+    calls=[];node._tick=lambda:calls.append(True)
+    command=adapter.Twist();command.linear.x=.2
+    for _ in range(1000):node._on_cmd(command)
+    assert calls==[]
+    assert node.cmd_pub.messages==[]  # nonzero output still requires the wall timer's safety check
+    assert node.safety._cmd==(.2,0.)
+
+
+@pytest.mark.parametrize('kind',['zero','nonplanar','nan'])
+def test_zero_and_invalid_command_stop_immediately_without_geometry(adapter,kind):
+    node=node_for(adapter);node.safety.note_command(.2,0,node.now)
+    command=adapter.Twist()
+    if kind=='nonplanar':command.linear.x=.2;command.linear.y=.1
+    if kind=='nan':command.linear.x=math.nan
+    node._tick=lambda:pytest.fail('command callback must not run geometry')
+    node._on_cmd(command)
+    assert node.cmd_pub.messages[-1].linear.x==0
+    if kind!='zero':assert node.safety.state==STOPPED
+
+
+def test_corrupt_cached_geometry_is_not_misdiagnosed_as_tf_failure(adapter):
+    node=node_for(adapter);refresh(node,node.now+.05)
+    node._clouds['cloud']=np.array([[math.nan,0.,0.]])
+    node.safety.note_command(.2,0,node.now);node._tick()
+    assert node.safety.sources['tf'].valid
+    assert not node.safety.sources['cloud'].valid
+    assert node.safety.state==STOPPED
+    assert 'nonfinite' in node._input_errors['cloud']['message']
+    assert 'tf' not in node._input_errors
+
+
+def test_map_lookup_failure_keeps_odom_tf_evidence_and_reports_actual_source(adapter):
+    node=node_for(adapter);refresh(node,node.now+.05)
+    def lookup(target,*args):
+        if target=='map':raise adapter.TransformException('missing map epoch')
+        return transform(node.ros_now)
+    node._tf.lookup_transform=lookup;node._tick()
+    assert node.safety.sources['tf'].valid
+    assert not node.safety.sources['map_tf'].valid
+    assert node._input_errors['map_tf']['message']=='missing map epoch'

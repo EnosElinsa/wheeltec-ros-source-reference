@@ -45,6 +45,7 @@ def main():
             self.gt=None;self.odom=None;self.contacts=0;self.contacts_seen=False;self.contact_sources={};self.stamps={};self.last_safe=-math.inf
             self.samples=[];self.file=None;self.phase='initializing';self.last_record=0.;self.last_resource=0.
             self.resources={};self.clock_last=None;self.clock_ratio=None
+            self.next_command_wall=0.
             self.evidence=Evidence();self.paused=False;self.resume_grace_until=0.;self.goal_map=None
             self.tf=Buffer();self.listener=TransformListener(self.tf,self)
             qos=QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL,reliability=ReliabilityPolicy.RELIABLE)
@@ -84,8 +85,10 @@ def main():
         def spin(self,duration,v=0.,w=0.,drive=False):
             until=time.monotonic()+duration
             while rclpy.ok() and time.monotonic()<until:
-                if drive:
+                wall=time.monotonic()
+                if drive and wall>=self.next_command_wall:
                     cmd=Twist();cmd.linear.x=v;cmd.angular.z=w;self.pub.publish(cmd)
+                    self.next_command_wall=wall+.05
                 rclpy.spin_once(self,timeout_sec=.025);self.record()
         def record(self):
             wall=time.monotonic()

@@ -77,6 +77,7 @@ class VoWatchdog(Node):
         self._goal_boundary = GoalAcceptanceBoundary()
         self._last_graph_check = -1.0
         self._ownership_valid = False
+        self._input_errors = {}
         self._cancellations = {}
         self._cancel_futures = {}
         self._tf = Buffer(cache_time=Duration(seconds=5.0))
@@ -172,8 +173,21 @@ class VoWatchdog(Node):
             points = transform_points(points, transform.transform)
             if self._note(name, msg):
                 self._clouds[name] = points
-        except (TransformException, ValueError, TypeError, IndexError, KeyError):
+                self._input_errors.pop(name, None)
+            elif not self.safety.sources[name].valid:
+                self._remember_error(name, ValueError(
+                    f"rejected acquisition stamp {stamp_ns(msg.header.stamp)}; "
+                    f"ROS now {self.get_clock().now().nanoseconds}"))
+        except (TransformException, ValueError, TypeError, IndexError, KeyError) as error:
             self._note(name, msg, False)
+            self._remember_error(name, error)
+
+    def _remember_error(self, source, error):
+        if not hasattr(self, "_input_errors"):
+            self._input_errors = {}
+        previous = self._input_errors.get(source, {})
+        self._input_errors[source] = {"type": type(error).__name__, "message": str(error),
+                                      "count": previous.get("count", 0) + 1}
 
     def _on_cmd(self, msg):
         other = (msg.linear.y, msg.linear.z, msg.angular.x, msg.angular.y)
@@ -181,8 +195,12 @@ class VoWatchdog(Node):
             self.safety.stop("nonplanar_or_invalid_command")
         else:
             self.safety.note_command(msg.linear.x, msg.angular.z, time.monotonic())
-        # Evaluate immediately as well as on the independent 20 Hz timer.
-        self._tick()
+        # Geometry runs solely on the independent 20Hz wall timer. A command
+        # burst must not multiply cloud transforms or starve sensor/TF receipt.
+        # Zero/invalid/blocked input still stops immediately without geometry;
+        # nonzero commands are considered on the next tick within 50ms.
+        if self.safety._cmd == (0.0, 0.0) or self.safety.state == "STOPPED":
+            self.cmd_pub.publish(Twist())
 
     def _on_tf_authority(self, msg):
         self._note("tf_authority", msg, len(msg.status) == 1
@@ -258,19 +276,38 @@ class VoWatchdog(Node):
             transform = self._tf.lookup_transform("base_footprint", "odom", Time())
             if not transform_valid(transform.transform):
                 raise ValueError("invalid odom transform")
-            if self._cfg.mode == "navigation":
+            self.safety.note("tf", stamp_ns(transform.header.stamp), now, ros_now_ns=ros_now)
+            self._input_errors.pop("tf", None)
+        except (TransformException, ValueError) as error:
+            self.safety.note("tf", 1, now, valid=False)
+            self._remember_error("tf", error)
+            transform = None
+        if self._cfg.mode == "navigation":
+            try:
                 map_transform = self._tf.lookup_transform("map", "odom", Time())
                 self.safety.note("map_tf", stamp_ns(map_transform.header.stamp), now,
                                  valid=transform_valid(map_transform.transform), ros_now_ns=ros_now)
-            self.safety.note("tf", stamp_ns(transform.header.stamp), now, ros_now_ns=ros_now)
-            cloud = transform_points(self._clouds["cloud"], transform.transform)
-            obstacles = transform_points(self._clouds["obstacles"], transform.transform)
-            vx, wz = normalized_command(self._cfg, *self.safety._cmd)
-            clearance = swept_clearance(obstacles, self._cfg, vx, wz)
-            observed = observed_forward_range(cloud, self._cfg, vx, wz)
-            age = self.safety.geometry_age(now)
-        except (TransformException, ValueError):
-            self.safety.note("tf", 1, now, valid=False)
+                self._input_errors.pop("map_tf", None)
+            except (TransformException, ValueError) as error:
+                self.safety.note("map_tf", 1, now, valid=False)
+                self._remember_error("map_tf", error)
+        if transform is not None:
+            geometry = {}
+            for name in ("cloud", "obstacles"):
+                try:
+                    geometry[name] = transform_points(self._clouds[name], transform.transform)
+                except ValueError as error:
+                    self.safety.note(name, 1, now, valid=False)
+                    self._remember_error(name, error)
+            if len(geometry) == 2:
+                try:
+                    vx, wz = normalized_command(self._cfg, *self.safety._cmd)
+                    clearance = swept_clearance(geometry["obstacles"], self._cfg, vx, wz)
+                    observed = observed_forward_range(geometry["cloud"], self._cfg, vx, wz)
+                    age = self.safety.geometry_age(now)
+                except ValueError as error:
+                    self.safety.note("cloud", 1, now, valid=False)
+                    self._remember_error("geometry", error)
         decision = self.safety.step(now, clearance_m=clearance, observed_range_m=observed,
                                     observation_age_s=age)
         output = Twist()
@@ -282,6 +319,7 @@ class VoWatchdog(Node):
             self._last_status_time = now
             detail = self.safety.summary(now)
             detail.update(reason=decision.reason, output_vx=decision.vx, output_wz=decision.wz,
+                          input_errors=dict(self._input_errors), tick_wall_s=time.monotonic() - now,
                           clearance_m=clearance if math.isfinite(clearance) else None,
                           observed_range_m=observed, observation_age_s=age,
                           cancellations={name: {"attempts": a.attempts, "succeeded": a.succeeded}
