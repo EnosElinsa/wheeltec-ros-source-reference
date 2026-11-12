@@ -84,7 +84,7 @@ jobs:
           curl -fsSL --retry 3 https://packages.osrfoundation.org/gazebo.gpg -o /usr/share/keyrings/gazebo-archive-keyring.gpg
           echo 'deb [signed-by=/usr/share/keyrings/gazebo-archive-keyring.gpg] https://packages.osrfoundation.org/gazebo/ubuntu-stable jammy main' > /etc/apt/sources.list.d/gazebo-stable.list
           apt-get update
-          apt-get install -y libignition-gazebo6-dev libignition-plugin1-dev
+          apt-get install -y libignition-gazebo6-dev libignition-plugin-dev
       - name: Build native actuator
         shell: bash
         run: |
