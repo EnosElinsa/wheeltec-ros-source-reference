@@ -162,7 +162,8 @@ def world_sdf(g=Geometry()):
     actuator=_plugin(model,'libwheeltec_sim_actuator.so','wheeltec::Actuator')
     for name,value in (('seed',g.seed),('wheelbase',g.wheelbase),('track',g.track),('radius',g.radius),('timeout',.25),
                        ('steering_limit',g.steering_limit),('min_radius',max(.6,g.track/2+g.wheelbase/math.tan(g.steering_limit)))): _tag(actuator,name,value)
-    jointpub=_plugin(model,'ignition-gazebo-joint-state-publisher-system','ignition::gazebo::systems::JointStatePublisher'); _tag(jointpub,'topic','/sim/joints'); _tag(jointpub,'update_rate',50)
+    # Native actuator publishes measured joint states at 50 Hz. Older installed
+    # Fortress stock JointStatePublisher ignores update_rate and floods at 1 kHz.
     truth=_plugin(model,'ignition-gazebo-odometry-publisher-system','ignition::gazebo::systems::OdometryPublisher')
     for name,value in (('odom_topic','/sim/ground_truth'),('odom_publish_frequency',50),('odom_frame','world'),('robot_base_frame','ground_truth/base_footprint'),('dimensions',3)): _tag(truth,name,value)
     return ET.tostring(root,encoding='unicode')

@@ -8,31 +8,41 @@
 #include <ignition/gazebo/System.hh>
 #include <ignition/gazebo/Model.hh>
 #include <ignition/gazebo/components/JointPosition.hh>
+#include <ignition/gazebo/components/JointVelocity.hh>
 #include <ignition/gazebo/components/JointVelocityCmd.hh>
 #include <ignition/plugin/Register.hh>
 #include <ignition/transport/Node.hh>
 #include <ignition/msgs/twist.pb.h>
+#include <ignition/msgs/model.pb.h>
+#include <ignition/msgs/boolean.pb.h>
 #include <ignition/math/Rand.hh>
 #include "wheeltec_sim_actuator/kinematics.hh"
 
 namespace wheeltec {
 using namespace ignition::gazebo;
-class Actuator final : public System, public ISystemConfigure, public ISystemPreUpdate {
+class Actuator final : public System, public ISystemConfigure, public ISystemPreUpdate, public ISystemPostUpdate {
   using Clock = std::chrono::steady_clock;
   Model model{kNullEntity};
   ignition::transport::Node transport;
+  ignition::transport::Node::Publisher jointPublisher;
+  std::chrono::steady_clock::duration lastJointTime{-std::chrono::seconds(1)};
   std::mutex mutex;
   CommandLease lease;
+  bool dropCommands{false};
   double wheelbase{.34}, track{.30}, radius{.065}, timeout{.25}, limit{.65}, minRadius{.6};
   std::array<Entity,6> joints{};
   const std::array<std::string,6> names{{"rear_left_joint", "rear_right_joint", "front_left_joint", "front_right_joint", "steer_left_joint", "steer_right_joint"}};
   void Command(const ignition::msgs::Twist &msg) {
     std::lock_guard<std::mutex> lock(mutex);
+    if (dropCommands) return;
     const auto &l=msg.linear(); const auto &a=msg.angular();
     const bool valid=std::isfinite(l.x()) && std::isfinite(a.z()) &&
       std::isfinite(l.y()) && std::isfinite(l.z()) && std::isfinite(a.x()) && std::isfinite(a.y()) &&
       std::abs(l.y())+std::abs(l.z())+std::abs(a.x())+std::abs(a.y()) < 1e-6;
     lease.Set(valid?l.x():0,valid?a.z():0,std::chrono::duration<double>(Clock::now().time_since_epoch()).count());
+  }
+  void Drop(const ignition::msgs::Boolean &msg) {
+    std::lock_guard<std::mutex> lock(mutex);dropCommands=msg.data();
   }
   static void Velocity(Entity joint, double value, EntityComponentManager &ecm) {
     auto cmd=ecm.Component<components::JointVelocityCmd>(joint);
@@ -55,6 +65,10 @@ class Actuator final : public System, public ISystemConfigure, public ISystemPre
       throw std::runtime_error("invalid actuator geometry/deadline");
     // Only this bridge-facing topic is accepted. No alternate ungated input.
     transport.Subscribe("/cmd_vel_safe", &Actuator::Command, this);
+    // Fault injection only removes delivery; it can never grant motion or
+    // renew the lease. This proves timeout independently of ROS zero output.
+    transport.Subscribe("/sim/actuator/drop_commands", &Actuator::Drop, this);
+    jointPublisher=transport.Advertise<ignition::msgs::Model>("/sim/joints");
   }
   void PreUpdate(const UpdateInfo &info, EntityComponentManager &ecm) override {
     double v=0,w=0;
@@ -70,6 +84,8 @@ class Actuator final : public System, public ISystemConfigure, public ISystemPre
       if (!joints[i]) return;
       if (!ecm.Component<components::JointPosition>(joints[i]))
         ecm.CreateComponent(joints[i],components::JointPosition());
+      if (!ecm.Component<components::JointVelocity>(joints[i]))
+        ecm.CreateComponent(joints[i],components::JointVelocity());
     }
     const auto targets=Ackermann(v,w,wheelbase,track,radius,limit,minRadius);
     for (size_t side=0; side<2; ++side) {
@@ -80,8 +96,28 @@ class Actuator final : public System, public ISystemConfigure, public ISystemPre
       Velocity(joints[side+4],std::clamp(8*(targets[side+4]-angle),-2.,2.),ecm);
     }
   }
+  void PostUpdate(const UpdateInfo &info,const EntityComponentManager &ecm) override {
+    if (info.paused) return;
+    if (info.simTime < lastJointTime) lastJointTime=info.simTime-std::chrono::seconds(1);
+    if (info.simTime-lastJointTime<std::chrono::milliseconds(20)) return;
+    ignition::msgs::Model msg;
+    const auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(info.simTime).count();
+    msg.mutable_header()->mutable_stamp()->set_sec(ns/1000000000);
+    msg.mutable_header()->mutable_stamp()->set_nsec(ns%1000000000);
+    msg.set_name("wheeltec");
+    for (size_t i=0;i<joints.size();++i) {
+      auto position=ecm.Component<components::JointPosition>(joints[i]);
+      auto velocity=ecm.Component<components::JointVelocity>(joints[i]);
+      if (!position || !velocity || position->Data().empty() || velocity->Data().empty()) return;
+      auto joint=msg.add_joint();joint->set_name(names[i]);
+      joint->mutable_axis1()->set_position(position->Data()[0]);
+      joint->mutable_axis1()->set_velocity(velocity->Data()[0]);
+    }
+    jointPublisher.Publish(msg);lastJointTime=info.simTime;
+  }
 };
 }
 IGNITION_ADD_PLUGIN(wheeltec::Actuator, ignition::gazebo::System,
-                   wheeltec::Actuator::ISystemConfigure, wheeltec::Actuator::ISystemPreUpdate)
+                   wheeltec::Actuator::ISystemConfigure, wheeltec::Actuator::ISystemPreUpdate,
+                   wheeltec::Actuator::ISystemPostUpdate)
 IGNITION_ADD_PLUGIN_ALIAS(wheeltec::Actuator,"wheeltec::Actuator")

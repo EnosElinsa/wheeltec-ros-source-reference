@@ -22,6 +22,7 @@ from wheeltec_vision_nav.launch_pipeline import supervised_processes
 def bridge_specs():
     specs=[('/clock','rosgraph_msgs/msg/Clock','ignition.msgs.Clock','gz_to_ros'),
            ('/cmd_vel_safe','geometry_msgs/msg/Twist','ignition.msgs.Twist','ros_to_gz'),
+           ('/sim/actuator/drop_commands','std_msgs/msg/Bool','ignition.msgs.Boolean','ros_to_gz'),
            ('/sim/joints','sensor_msgs/msg/JointState','ignition.msgs.Model','gz_to_ros'),
            ('/sim/ground_truth','nav_msgs/msg/Odometry','ignition.msgs.Odometry','gz_to_ros'),
            ('/sim/raw/imu','sensor_msgs/msg/Imu','ignition.msgs.IMU','gz_to_ros')]

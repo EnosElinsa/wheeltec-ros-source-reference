@@ -8,6 +8,7 @@ from sensor_msgs.msg import Image,CameraInfo,Imu
 from std_msgs.msg import String
 from std_srvs.srv import SetBool
 from .core import ExposureGate
+from .depth import millimetres
 
 def stamp_ns(m): return m.header.stamp.sec*1_000_000_000+m.header.stamp.nanosec
 
@@ -40,6 +41,7 @@ class Inputs(Node):
             source='Gazebo Fortress synthetic camera/IMU and encoder joints',
             timestamp='original Gazebo integer simulation nanoseconds; unmodified',
             synchronization='left RGB/depth same RGBDCamera; right same rate; exact downstream stereo gate',
+            depth_units='raw32FC1 metres -> adapted16UC1 millimetres; invalid/nonpositive/overflow zero; original stamp',
             calibration='ideal rectified pinhole, fixed generated TF; no emitter/projector metadata',faults=self.drop)))))
     def fault(self,name,req,res):
         self.drop[name]=req.data
@@ -52,6 +54,10 @@ class Inputs(Node):
         if name=='left': self.release('depth',self.gates['depth'].add('info',stamp_ns(info),deepcopy(info)))
     def image(self,name,msg):
         out=deepcopy(msg); out.header.frame_id='sim_'+('left' if name=='depth' else name)+'_optical'
+        if name=='depth':
+            try:out.data=millimetres(msg.encoding,msg.width,msg.height,msg.step,msg.is_bigendian,msg.data)
+            except (ValueError,TypeError,BufferError):return
+            out.encoding='16UC1';out.step=msg.width*2;out.is_bigendian=False
         self.release(name,self.gates[name].add('image',stamp_ns(msg),out))
     def release(self,name,group):
         if group is None or self.drop['depth' if name=='depth' else 'vision']:return

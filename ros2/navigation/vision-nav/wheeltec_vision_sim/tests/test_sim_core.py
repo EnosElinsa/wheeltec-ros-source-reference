@@ -5,7 +5,7 @@ import pytest
 from wheeltec_vision_sim.core import EncoderOdometry,ExposureGate,odometry_contract,body_velocity
 from wheeltec_vision_sim.model import Geometry,world_sdf,robot_urdf
 from wheeltec_vision_sim.extrinsics import transforms,rotation_rpy
-from wheeltec_vision_sim.mission_logic import assess_fault
+from wheeltec_vision_sim.mission_logic import assess_fault,CONTACT_SOURCES
 from wheeltec_vision_sim.configuration import effective_runtime,ekf_parameters,simulation_time
 
 
@@ -78,7 +78,9 @@ def test_odom_contract_rejects_stale_wrong_orientation_and_covariance():
 
 def test_fault_assertion_requires_real_fresh_zero_evidence_and_latch():
     assert not assess_fault([],0,2)['passed']
-    sample=dict(safe_v=0.,safe_w=0.,safe_age_s=.05,new_goal_required=True,contacts=0,contacts_observed=True)
+    sample=dict(safe_v=0.,safe_w=0.,safe_age_s=.05,new_goal_required=True,contacts=0,contacts_observed=True,
+                evidence_fresh={n:True for n in ('gt','wheel',*CONTACT_SOURCES)},wheel_v=0.,wheel_w=0.,
+                collision_events=0,ground_truth={'xyz':[0,0,0]})
     samples=[dict(sample,wall=t) for t in (.8,1.,1.5,2.6,3.)]
     assert assess_fault(samples,0,2,require_latch=True)['passed']
     samples[-1]['new_goal_required']=False

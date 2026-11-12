@@ -30,6 +30,10 @@ installed `config/geometry.yaml` lists all fields. Noise is synthetic, and
 estimator covariance floors are conservative heuristics, not calibrated error.
 The camera uses a generated pinhole model. CameraInfo retains its image stamp;
 the right `P[3]` is `-fx*baseline`. No emitter/projector metadata is manufactured.
+Raw Gazebo depth remains `32FC1` metres on `/sim/raw/left/depth_image`.
+The simulation adapter explicitly converts to `16UC1` millimetres for the shared
+depth-validity gate, preserving its header; NaN/infinite/nonpositive/overflow
+returns become invalid zero. This preserves production obstacle protection.
 
 The model has four rolling joints and two front steering joints. The rear axle
 floor point is `base_footprint`. All command and encoder equations use that
@@ -81,6 +85,25 @@ required. `samples.jsonl` records raw original sensor/GT stamps, safe commands,
 joint velocities, contacts, health, process CPU/RSS and sim/wall ratio;
 `results.json` contains observed assertions. Missing evidence, failed services
 or nonzero commands fail a case. Exit 2 means at least one scenario failed.
+
+Fault acceptance also requires physical stopping: after the command allowance
+(0.55 s normally; 1.6 s for permitted visual degraded fallback), wheel speed must
+fall below 0.02 m/s and 0.05 rad/s after a 0.85 s minimum braking allowance, and
+independent GT drift must remain within 0.04 m. Pause checks frozen simulation
+time and the resumed 0.3–1.5 s physical-stop window. `actuator_lease` deliberately
+drops command delivery inside the native actuator while `/cmd_vel_safe` remains
+live, proving its own timeout independently of ROS zero publishing. The drop
+input can only remove command delivery; it cannot grant motion or renew a lease.
+
+Every active trial sample requires fresh wheel, GT and all five contact streams;
+the intentional paused interval and first 0.3 s after resume permit silent
+sensors. Callback collision events are latched so a short hit cannot disappear
+between recorder ticks. Route acceptance requires action success and fresh GT
+within 0.25 m / 0.25 rad of the requested goal transformed by a **single fixed
+initial map/world alignment** established from synchronous stationary start
+poses. Endpoints never recompute alignment. Native measured joint publication
+is explicitly throttled to 50 Hz even on older Fortress versions whose stock
+JointStatePublisher ignores an `update_rate` element.
 
 Run local core checks with `python -m pytest .../wheeltec_vision_sim/tests`.
 Run native math/deadline checks with `colcon test --packages-select

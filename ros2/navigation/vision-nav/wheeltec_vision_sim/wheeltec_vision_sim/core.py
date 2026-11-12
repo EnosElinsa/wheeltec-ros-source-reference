@@ -12,15 +12,21 @@ class EncoderOdometry:
     yaw: float=0.
     last_ns: int | None=None
     previous: tuple | None=None
+    resets: int=0
 
     def update(self,stamp_ns,left,right):
         if not all(math.isfinite(v) for v in (left,right)) or stamp_ns<=0: return None
-        old,last=self.previous,self.last_ns; self.previous=(left,right); self.last_ns=stamp_ns
-        if last is None: return None
+        old,last=self.previous,self.last_ns
+        if last is None:
+            self.previous=(left,right);self.last_ns=stamp_ns;return None
+        if stamp_ns<=last:return None  # duplicate/backward input cannot replace the accepted baseline
         dt=(stamp_ns-last)*1e-9
-        if not 0<dt<=.5: return None
         dl,dr=(left-old[0])*self.radius,(right-old[1])*self.radius
-        if max(abs(dl),abs(dr))>2*dt: return None  # encoder discontinuity, fail closed
+        if dt>.5 or max(abs(dl),abs(dr))>2*dt:
+            # Explicit epoch reset: discard all travel across a long outage or
+            # encoder discontinuity, then start from this measured baseline.
+            self.previous=(left,right);self.last_ns=stamp_ns;self.resets+=1;return None
+        self.previous=(left,right);self.last_ns=stamp_ns
         distance=(dl+dr)/2; angle=(dr-dl)/self.track
         if abs(angle)<1e-10: dx,dy=distance,0.
         else: dx,dy=distance*math.sin(angle)/angle,distance*(1-math.cos(angle))/angle
