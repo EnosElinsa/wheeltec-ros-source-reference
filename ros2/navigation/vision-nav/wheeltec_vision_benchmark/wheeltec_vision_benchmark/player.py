@@ -1,4 +1,5 @@
 """Wall-paced, original-timestamp EuRoC replay and raw estimator evidence capture."""
+from array import array
 import csv
 import json
 from pathlib import Path
@@ -11,6 +12,11 @@ from .geometry import quaternion
 from .rectification import StereoRectifier
 from .runtime import CAMERA_FRAMES, FRAME, events, playback_policy, prepare_run, stamp_parts
 from .trajectory import Pose, save_evaluation
+
+
+def image_payload(image):
+    """Use the generated ROS uint8-array fast path without changing pixels."""
+    return array('B', image.tobytes())
 
 
 def main(argv=None):
@@ -181,7 +187,7 @@ def main(argv=None):
                     msg.header.frame_id = CAMERA_FRAMES[side]
                     msg.height, msg.width = image.shape
                     msg.encoding, msg.is_bigendian, msg.step = 'mono8', 0, image.shape[1]
-                    msg.data = image.tobytes()
+                    msg.data = image_payload(image)
                     info = CameraInfo()
                     info.header = msg.header
                     for key, value in self.rect.camera_info(side).items():

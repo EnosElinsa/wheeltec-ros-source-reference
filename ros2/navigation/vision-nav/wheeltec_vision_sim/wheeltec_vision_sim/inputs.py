@@ -1,4 +1,5 @@
 """Preserve synthetic exposure stamps; never emulate D435 emitter metadata."""
+from array import array
 from copy import deepcopy
 import json
 import rclpy
@@ -55,7 +56,7 @@ class Inputs(Node):
     def image(self,name,msg):
         out=deepcopy(msg); out.header.frame_id='sim_'+('left' if name=='depth' else name)+'_optical'
         if name=='depth':
-            try:out.data=millimetres(msg.encoding,msg.width,msg.height,msg.step,msg.is_bigendian,msg.data)
+            try:out.data=array('B',millimetres(msg.encoding,msg.width,msg.height,msg.step,msg.is_bigendian,msg.data))
             except (ValueError,TypeError,BufferError):return
             out.encoding='16UC1';out.step=msg.width*2;out.is_bigendian=False
         self.release(name,self.gates[name].add('image',stamp_ns(msg),out))

@@ -195,3 +195,16 @@ def test_estimator_bounds_callback_concurrency_and_image_backlog(mode):
     # High-rate IMU history is independent of the bounded image/output queues.
     assert params['imu_queue_size'] == 400
     assert params['approx_sync'] is False
+
+
+@pytest.mark.parametrize('strided', [False, True])
+def test_image_payload_preserves_exact_rectified_pixels(strided):
+    from array import array
+    from wheeltec_vision_benchmark.player import image_payload
+    image = np.arange(480 * 752, dtype=np.uint8).reshape(480, 752)
+    if strided:
+        image = image[:, ::2]
+    payload = image_payload(image)
+    assert isinstance(payload, array) and payload.typecode == 'B'
+    assert payload.tobytes() == image.tobytes()
+    assert len(payload) == image.size
