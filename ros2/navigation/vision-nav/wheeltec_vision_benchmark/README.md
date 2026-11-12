@@ -57,6 +57,25 @@ so these exclusions reduce coverage explicitly instead of removing the loss
 from the denominator. This endpoint policy does not interpolate or fill internal
 IMU gaps.
 
+Generated VINS noise uses the explicit `pinned_vins_midpoint_step_variance_v1`
+policy. EuRoC YAML values are continuous densities per sqrt(Hz), while the pinned
+VINS `integration_base.h` uses their squared parameters with discrete midpoint
+weights. Two independent measurement endpoints each have weight `dt/2`, so
+`acc_n` and `gyr_n` are density times `sqrt(2 * rate_hz)`. Bias driving noise has
+weight `dt`, so `acc_w` and `gyr_w` are random-walk density times `sqrt(rate_hz)`.
+Then the leading per-step variance is density squared times `dt`. This is the
+pinned backend's independent-endpoint approximation; it does not account for
+correlations caused by endpoint reuse across steps or claim exact multi-step
+covariance. It is not the upstream example's empirically tuned noise setting.
+Config generation checks every raw IMU interval against calibrated 200 Hz within
+256 ns, permitting EuRoC's stored timestamp quantization but rejecting missing
+samples or a conflicting rate; it never repairs or resamples them.
+`manifest.json` records raw densities/units, measured interval extrema, source pin,
+formulas and derived parameters/units under `imu_noise_policy`; raw dataset
+identity remains unchanged. This policy corrects the previous direct density
+copy and requires new controlled VIO runs before any accuracy claim. Preserve
+the earlier failed trajectories and compare coverage/error without scale fitting.
+
 ## Run
 
 Use an unused ROS domain so the benchmark `/clock` and TF do not reach a live

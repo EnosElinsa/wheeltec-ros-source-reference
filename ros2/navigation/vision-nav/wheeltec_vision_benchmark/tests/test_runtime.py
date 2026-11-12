@@ -30,6 +30,9 @@ def test_prepare_run_records_identity_and_estimator_contract(euroc, tmp_path):
     assert manifest['data']['ground_truth_reference']['sensor_yaml_text']
     assert 'IMU' in manifest['data']['ground_truth_reference']['interpretation']
     assert manifest['config_files']['vins.yaml']
+    assert manifest['imu_noise_policy']['policy'] == 'pinned_vins_midpoint_step_variance_v1'
+    assert manifest['imu_noise_policy']['continuous_densities']['accelerometer_noise_density'] == .002
+    assert manifest['imu_noise_policy']['derived_vins_parameters']['acc_n'] == pytest.approx(.04)
     spec = estimator_spec(output / 'config/vins.yaml', 'vio')
     params = spec['parameters'][0]
     assert params['frame_id'] == 'base_footprint'
@@ -41,6 +44,54 @@ def test_prepare_run_records_identity_and_estimator_contract(euroc, tmp_path):
     assert ('odom_info', '/benchmark/odom_info') in spec['remappings']
     with pytest.raises(FileExistsError):
         prepare_run(euroc, output, 'vio', True)
+
+
+def test_noise_conversion_matches_pinned_midpoint_step_covariance(euroc, tmp_path):
+    import cv2
+    from wheeltec_vision_benchmark.dataset import load_dataset
+    from wheeltec_vision_benchmark.config import generate_config, imu_noise_policy
+    from wheeltec_vision_benchmark.rectification import StereoRectifier
+    data = load_dataset(euroc)
+    identity = data.identity()
+    policy = imu_noise_policy(data)
+    noise = policy['derived_vins_parameters']
+    dt = 1 / policy['calibrated_rate_hz']
+    raw = policy['continuous_densities']
+    # Pinned integration V uses dt/2 for both endpoint measurements and dt for bias.
+    for field, density in [('acc_n', 'accelerometer_noise_density'), ('gyr_n', 'gyroscope_noise_density')]:
+        assert 2 * (dt / 2)**2 * noise[field]**2 == pytest.approx(raw[density]**2 * dt)
+    for field, density in [('acc_w', 'accelerometer_random_walk'), ('gyr_w', 'gyroscope_random_walk')]:
+        assert dt**2 * noise[field]**2 == pytest.approx(raw[density]**2 * dt)
+    path = generate_config(data, StereoRectifier(data), tmp_path / 'config', 'vio')
+    fs = cv2.FileStorage(str(path), cv2.FILE_STORAGE_READ)
+    try:
+        for field, value in noise.items():
+            assert fs.getNode(field).real() == pytest.approx(value)
+    finally:
+        fs.release()
+    assert data.identity() == identity
+
+
+@pytest.mark.parametrize('bad_rate', [100., float('nan'), 0.])
+def test_noise_conversion_rejects_calibrated_rate_conflicting_with_stamps(euroc, bad_rate):
+    from wheeltec_vision_benchmark.dataset import load_dataset
+    from wheeltec_vision_benchmark.config import imu_noise_policy
+    data = load_dataset(euroc)
+    data.imu.calibration['rate_hz'] = bad_rate
+    with pytest.raises(ValueError, match='rate'):
+        imu_noise_policy(data)
+
+
+def test_noise_conversion_allows_epoch_quantization_but_rejects_missing_sample(euroc):
+    from wheeltec_vision_benchmark.dataset import load_dataset
+    from wheeltec_vision_benchmark.config import imu_noise_policy
+    data = load_dataset(euroc)
+    original = data.imu.times.copy()
+    data.imu.times = [t + (192 if i % 2 else 0) for i, t in enumerate(original)]
+    assert imu_noise_policy(data)['stamped_interval_ns']['maximum'] == 5_000_192
+    data.imu.times = original[:10] + original[11:]
+    with pytest.raises(ValueError, match='stamped intervals'):
+        imu_noise_policy(data)
 
 
 def test_results_are_saved_even_when_no_output(euroc, tmp_path):

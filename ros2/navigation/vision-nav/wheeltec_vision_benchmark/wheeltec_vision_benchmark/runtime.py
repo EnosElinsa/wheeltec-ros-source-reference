@@ -6,7 +6,7 @@ import platform
 
 import cv2
 import numpy as np
-from .config import generate_config
+from .config import generate_config, imu_noise_policy
 from .dataset import digest, load_dataset
 from .rectification import StereoRectifier
 
@@ -70,6 +70,7 @@ def prepare_run(dataset, output, mode, run_estimator):
     config = generate_config(data, rect, output / 'config', mode)
     identity = data.identity()
     manifest = dict(schema_version=1, data=identity, mode=mode, run_estimator=run_estimator,
+                    imu_noise_policy=imu_noise_policy(data),
                     playback_policy=playback_policy(data, mode),
                     timestamp_policy='original integer nanoseconds; 1x CSV time; no resampling',
                     frame_id=FRAME, body_origin='imu0, full 6DoF; not planar chassis',
