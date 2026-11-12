@@ -85,9 +85,12 @@ class SoakEvidence:
         for name in REQUIRED_SOURCES | sources.keys():
             item = sources.get(name, {})
             age = item.get('age_s') if isinstance(item, dict) else None
-            elapsed = now-self.health_received if self.health_received is not None else math.inf
+            # This age describes the source observation at health publication.
+            # Diagnostics run at 4-5 Hz while sources can update at 20 Hz. The
+            # recorder cannot extrapolate that old observation into a claim that
+            # no newer source arrived. Only health receipt expiry is continuous.
             if (not isinstance(item, dict) or item.get('valid') is not True or not finite(age)
-                    or not 0 <= age+elapsed < SOURCE_TIMEOUTS.get(name, RECEIPT_TIMEOUT)):
+                    or not 0 <= age < SOURCE_TIMEOUTS.get(name, RECEIPT_TIMEOUT)):
                 failed.add('health_source_stale_or_invalid:'+name)
         if not fresh(self.clock_received) or not fresh(self.clock_advanced) or not self.clock_advances:
             failed.add('ros_clock_not_advancing')
@@ -220,6 +223,7 @@ def save_summary(output, evidence, requested, ended, completed, samples, error=N
         sample_count=len(samples), monitoring='every callback and main loop; gap check precedes receipt updates',
         thresholds_s=dict(receipt=RECEIPT_TIMEOUT, health_sources_default=RECEIPT_TIMEOUT,
                           health_source_exceptions=SOURCE_TIMEOUTS),
+        health_source_observation='Health callback snapshots only: reported valid/age are checked without extrapolation; no continuous direct source coverage is claimed.',
         measured_ros_seconds=((evidence.ros_ns-evidence.start_ros_ns)*1e-9
                               if evidence.started is not None else None),
         first_window_rss_sum_median_bytes=median([s['rss_sum_bytes'] for s in samples[:300]]) if samples else None,
@@ -228,7 +232,7 @@ def save_summary(output, evidence, requested, ended, completed, samples, error=N
         sample_sha256=hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None,
         recorder_sha256=hashlib.sha256(RECORDER_SOURCE).hexdigest(),
         schema1_note='Legacy runs lack callback receipt/source/clock coverage; do not backfill schema 2 evidence.',
-        limits='Receipt gaps and health-reported source age are observed locally; this is not acquisition-to-actuator latency or a moving/navigation soak.',
+        limits='Health/command/wheel/clock receipt gaps are monitored continuously. Other source validity/age are observed only in health snapshots; this is not continuous direct source validation, acquisition-to-actuator latency, or a moving/navigation soak.',
         error=error,
         passed=bool(completed and duration >= requested and samples and not error and not evidence.violations))
     (output/'summary.json').write_text(json.dumps(report, indent=2, allow_nan=False)+'\n')

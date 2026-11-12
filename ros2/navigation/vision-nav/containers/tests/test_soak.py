@@ -87,6 +87,32 @@ def test_fresh_health_receipts_cannot_refresh_stale_source_age():
     assert evidence.violations['health_source_stale_or_invalid:cloud'] == 1
 
 
+def test_health_snapshot_interval_does_not_prove_source_stopped_between_reports():
+    evidence = running()
+    health = healthy(.1)
+    health['sources']['obstacles']['age_s'] = .08335
+    evidence.note_health(health, .1)
+    # An actual smoke had .08335 s source age plus .22268 s old health receipt.
+    # That does not observe source updates between diagnostic publications.
+    evidence.note_clock(int(100.32268e9), .32268)
+    evidence.note_wheel(int(100.32268e9), [0.]*6, .32268)
+    evidence.note_command([0.]*6, .32268)
+    assert evidence.check(.32268)
+    assert not evidence.violations
+
+
+@pytest.mark.parametrize('invalid', ['age', 'valid'])
+def test_new_ready_health_snapshot_cannot_hide_invalid_reported_source(invalid):
+    evidence = running()
+    health = healthy(.1)
+    if invalid == 'age': health['sources']['depth']['age_s'] = .301
+    else: health['sources']['depth']['valid'] = False
+    evidence.note_health(health, .1)
+    feed(evidence, .15)
+    assert evidence.check(.15)
+    assert evidence.violations['health_source_stale_or_invalid:depth'] == 1
+
+
 def test_clock_messages_must_advance_and_wheel_acquisition_cannot_repeat_forever():
     evidence = running()
     for now in (.15, .25, .35, .45):
