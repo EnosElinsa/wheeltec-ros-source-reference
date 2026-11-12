@@ -15,8 +15,10 @@
 #include <ignition/msgs/twist.pb.h>
 #include <ignition/msgs/model.pb.h>
 #include <ignition/msgs/boolean.pb.h>
+#include <ignition/msgs/clock.pb.h>
 #include <ignition/math/Rand.hh>
 #include "wheeltec_sim_actuator/kinematics.hh"
+#include "wheeltec_sim_actuator/simulation_clock.hh"
 
 namespace wheeltec {
 using namespace ignition::gazebo;
@@ -25,6 +27,8 @@ class Actuator final : public System, public ISystemConfigure, public ISystemPre
   Model model{kNullEntity};
   ignition::transport::Node transport;
   ignition::transport::Node::Publisher jointPublisher;
+  ignition::transport::Node::Publisher clockPublisher;
+  SimulationClock simulationClock;
   std::chrono::steady_clock::duration lastJointTime{-std::chrono::seconds(1)};
   std::mutex mutex;
   CommandLease lease;
@@ -69,6 +73,7 @@ class Actuator final : public System, public ISystemConfigure, public ISystemPre
     // renew the lease. This proves timeout independently of ROS zero output.
     transport.Subscribe("/sim/actuator/drop_commands", &Actuator::Drop, this);
     jointPublisher=transport.Advertise<ignition::msgs::Model>("/sim/joints");
+    clockPublisher=transport.Advertise<ignition::msgs::Clock>("/sim/clock");
   }
   void PreUpdate(const UpdateInfo &info, EntityComponentManager &ecm) override {
     double v=0,w=0;
@@ -97,11 +102,17 @@ class Actuator final : public System, public ISystemConfigure, public ISystemPre
     }
   }
   void PostUpdate(const UpdateInfo &info,const EntityComponentManager &ecm) override {
+    const auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(info.simTime).count();
+    if (simulationClock.Due(ns,info.paused)) {
+      ignition::msgs::Clock clock;
+      clock.mutable_sim()->set_sec(ns/1000000000);
+      clock.mutable_sim()->set_nsec(ns%1000000000);
+      clockPublisher.Publish(clock);
+    }
     if (info.paused) return;
     if (info.simTime < lastJointTime) lastJointTime=info.simTime-std::chrono::seconds(1);
     if (info.simTime-lastJointTime<std::chrono::milliseconds(20)) return;
     ignition::msgs::Model msg;
-    const auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(info.simTime).count();
     msg.mutable_header()->mutable_stamp()->set_sec(ns/1000000000);
     msg.mutable_header()->mutable_stamp()->set_nsec(ns%1000000000);
     msg.set_name("wheeltec");

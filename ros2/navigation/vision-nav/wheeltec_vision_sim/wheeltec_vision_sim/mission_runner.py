@@ -61,7 +61,7 @@ def main():
             self.pub=self.create_publisher(Twist,'/cmd_vel',1)
             self.drop_pub=self.create_publisher(Bool,'/sim/actuator/drop_commands',1)
             self.action=ActionClient(self,NavigateToPose,'navigate_to_pose')
-            self.clients={n:self.create_client(SetBool,'/sim/fault/'+n) for n in ('vision','depth','imu')}
+            self.fault_clients={n:self.create_client(SetBool,'/sim/fault/'+n) for n in ('vision','depth','imu')}
             self.rearm=self.create_client(Trigger,'/vision/rearm')
             self.manager=self.create_client(ManageLifecycleNodes,'/lifecycle_manager_navigation/manage_nodes')
             self.goal=None
@@ -123,7 +123,7 @@ def main():
             if hasattr(result,'success') and not result.success:raise RuntimeError(str(result))
             return result
         def fault(self,name,value):
-            req=SetBool.Request();req.data=value;return self.call(self.clients[name],req)
+            req=SetBool.Request();req.data=value;return self.call(self.fault_clients[name],req)
         def send_goal(self,distance=.7,turn=0.):
             self.wait(self.action.server_is_ready,20,'NavigateToPose')
             tf=self.tf.lookup_transform('map','base_footprint',Time());p,q=tf.transform.translation,tf.transform.rotation

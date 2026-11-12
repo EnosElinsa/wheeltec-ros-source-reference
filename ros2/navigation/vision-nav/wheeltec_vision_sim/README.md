@@ -104,6 +104,13 @@ initial map/world alignment** established from synchronous stationary start
 poses. Endpoints never recompute alignment. Native measured joint publication
 is explicitly throttled to 50 Hz even on older Fortress versions whose stock
 JointStatePublisher ignores an `update_rate` element.
+The native plugin also samples Gazebo's exact simulation time at 100 Hz on
+`/sim/clock`, which the one-way bridge remaps to ROS `/clock`. The native 1 kHz
+Gazebo `/clock` is not bridged, avoiding a callback storm in every ROS TimeSource.
+Clock values retain the acquired integer nanoseconds; they are neither retimed
+to wall time nor rounded to the sampling period. A pause emits no repeated
+stationary clock; a backwards reset is published immediately even while paused.
+Safety watchdog and native command expiry remain wall-clock protections.
 
 Run local core checks with `python -m pytest .../wheeltec_vision_sim/tests`.
 Run native math/deadline checks with `colcon test --packages-select

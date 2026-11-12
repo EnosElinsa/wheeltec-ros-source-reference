@@ -1,6 +1,7 @@
 #include <cassert>
 #include <cmath>
 #include "wheeltec_sim_actuator/kinematics.hh"
+#include "wheeltec_sim_actuator/simulation_clock.hh"
 int main() {
   wheeltec::CommandLease lease;
   assert(lease.Resolve(2).first==0);
@@ -23,4 +24,20 @@ int main() {
   for(double value:spin) assert(value==0);
   auto sharp=wheeltec::Ackermann(.3,2,.34,.30,.065,.65,.6);
   assert(sharp[4]<=.65);
+  wheeltec::SimulationClock clock;
+  int publications=0;
+  for (std::int64_t ns=1000000;ns<=1000000000;ns+=1000000)
+    if (clock.Due(ns,false)) ++publications;
+  assert(publications==100);  // 1kHz physics -> 100 original clock stamps per sim s
+  for (int i=0;i<1000;++i) assert(!clock.Due(1000000000,true));
+  assert(clock.Due(1001000000,false));
+  assert(clock.publishedNs==1001000000);  // acquisition time, no period rounding
+  assert(!clock.Due(1002000000,false));
+  assert(clock.Due(0,true));              // rewind visible even while paused
+  assert(!clock.Due(0,true));
+  assert(clock.Due(10000000,false));
+  assert(!clock.Due(-1,false));
+  wheeltec::SimulationClock initiallyPaused;
+  assert(initiallyPaused.Due(0,true));
+  assert(!initiallyPaused.Due(0,true));
 }

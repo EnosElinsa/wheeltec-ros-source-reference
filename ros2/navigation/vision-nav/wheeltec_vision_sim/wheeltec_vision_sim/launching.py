@@ -20,7 +20,7 @@ from wheeltec_vision_nav.launch_pipeline import supervised_processes
 
 
 def bridge_specs():
-    specs=[('/clock','rosgraph_msgs/msg/Clock','ignition.msgs.Clock','gz_to_ros'),
+    specs=[('/sim/clock','rosgraph_msgs/msg/Clock','ignition.msgs.Clock','gz_to_ros'),
            ('/cmd_vel_safe','geometry_msgs/msg/Twist','ignition.msgs.Twist','ros_to_gz'),
            ('/sim/actuator/drop_commands','std_msgs/msg/Bool','ignition.msgs.Boolean','ros_to_gz'),
            ('/sim/joints','sensor_msgs/msg/JointState','ignition.msgs.Model','gz_to_ros'),
@@ -34,6 +34,10 @@ def bridge_specs():
                       (f'/sim/raw/{side}/camera_info','sensor_msgs/msg/CameraInfo','ignition.msgs.CameraInfo','gz_to_ros')])
     specs.append(('/sim/raw/left/depth_image','sensor_msgs/msg/Image','ignition.msgs.Image','gz_to_ros'))
     return [topic+'@'+ros+('[' if direction=='gz_to_ros' else ']')+gz for topic,ros,gz,direction in specs]
+
+
+def bridge_remappings():
+    return [('/sim/clock','/clock'),('/sim/joints','/joint_states')]
 
 
 def vins_config(directory,g,mode):
@@ -70,7 +74,7 @@ def build(mode,estimator,database,output,headless=True,reverse=False,geometry_fi
     safe=safety_parameters(cfg,localization=mode=='localization',odom_source='ekf',supervised_reverse=reverse)
     if estimator=='vio':safe['wheel_backup']=False  # no IMU-correlated degraded fallback
     bridge=Node(package='ros_gz_bridge',executable='parameter_bridge',name='sim_bridge',output='screen',
-                arguments=bridge_specs(),remappings=[('/sim/joints','/joint_states')])
+                arguments=bridge_specs(),remappings=bridge_remappings())
     actuator_lib=str(Path(get_package_prefix('wheeltec_sim_actuator'))/'lib')
     gazebo=ExecuteProcess(cmd=['ign','gazebo','-r','-s',*(['--headless-rendering'] if headless else []),
                                str(sdf)],output='screen',additional_env={
@@ -120,7 +124,8 @@ def build(mode,estimator,database,output,headless=True,reverse=False,geometry_fi
         nodes.append(activation)
     manifest=dict(mode=mode,estimator=estimator,geometry=g.__dict__,source='synthetic Gazebo Fortress',resource_root_pid=os.getpid(),
         command_chain=['Nav2','/cmd_vel_nav','velocity_smoother','/cmd_vel','vo_watchdog','/cmd_vel_safe','Gazebo Actuator'],
-        wall_clock_actuator_timeout_s=.25,ground_truth='scoring only /sim/ground_truth',vio_independent_imu_fusion=False,safety=safe,
+        wall_clock_actuator_timeout_s=.25,simulation_clock_hz=100,simulation_clock_stamp='exact acquired Gazebo nanoseconds; paused stationary, rewind immediate',
+        ground_truth='scoring only /sim/ground_truth',vio_independent_imu_fusion=False,safety=safe,
         tf_owners={'map->odom':'RTAB-Map','odom->base_footprint':'EKF','base->sensor':'robot_state_publisher'})
     (output/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     # Every failure tears down the whole group; actuator deadline remains last resort.
