@@ -67,3 +67,39 @@ def test_late_active_reply_cannot_be_treated_as_a_current_snapshot():
     clients = {name: DelayedClient(clock) for name in NAVIGATION_NODES}
     with pytest.raises(RuntimeError, match='all Nav2 lifecycle nodes ACTIVE'):
         wait_navigation_active(clients, object, clock.spin, timeout=1.5, clock=clock)
+
+
+@pytest.mark.parametrize('failure', ['never_available', 'motion', 'stale'])
+def test_exact_initial_alignment_wait_stays_bounded_and_rejects_motion_or_stale_pose(failure):
+    from wheeltec_vision_sim.mission_runner import wait_exact_transform
+    clock=Clock();requested=[]
+    class Missing(Exception): pass
+    def lookup(stamp):
+        requested.append(stamp)
+        raise Missing()
+    valid=lambda:clock()<(.02 if failure in ('motion','stale') else 2.)
+    with pytest.raises(RuntimeError,match='fresh stationary exact-stamp TF'):
+        wait_exact_transform(lookup,123,clock.spin,valid,Missing,clock=clock)
+    assert set(requested)=={123} and clock()<=.31
+
+
+def test_exact_initial_alignment_wait_retries_one_frozen_acquisition_while_spinning():
+    from wheeltec_vision_sim.mission_runner import wait_exact_transform
+    clock=Clock();requested=[]
+    class Missing(Exception): pass
+    def lookup(stamp):
+        requested.append(stamp)
+        if clock()<.04:raise Missing()
+        return 'exact transform'
+    result=wait_exact_transform(lookup,123,clock.spin,lambda:True,Missing,clock=clock)
+    assert result=='exact transform' and requested==[123]*len(requested) and len(requested)>1
+
+
+def test_stationary_alignment_requires_every_twist_axis_finite_and_small():
+    from wheeltec_vision_sim.mission_runner import stationary_twist
+    msg=NS(twist=NS(twist=NS(linear=NS(x=0.,y=0.,z=0.),angular=NS(x=0.,y=0.,z=0.))))
+    assert stationary_twist(msg)
+    for vector in (msg.twist.twist.linear,msg.twist.twist.angular):
+        for axis in ('x','y','z'):
+            setattr(vector,axis,.1);assert not stationary_twist(msg);setattr(vector,axis,0.)
+            setattr(vector,axis,float('nan'));assert not stationary_twist(msg);setattr(vector,axis,0.)

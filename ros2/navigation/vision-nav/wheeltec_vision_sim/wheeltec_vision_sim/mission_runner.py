@@ -29,6 +29,23 @@ def wait_navigation_active(clients, request, spin, timeout=45., clock=time.monot
     raise RuntimeError('timeout waiting for all Nav2 lifecycle nodes ACTIVE: '+detail)
 
 
+def stationary_twist(msg):
+    twist=msg.twist.twist
+    linear=(twist.linear.x,twist.linear.y,twist.linear.z)
+    angular=(twist.angular.x,twist.angular.y,twist.angular.z)
+    return all(math.isfinite(v) and abs(v)<.02 for v in linear) and all(
+        math.isfinite(v) and abs(v)<.05 for v in angular)
+
+
+def wait_exact_transform(lookup, acquisition, spin, valid, transform_error, timeout=.3, clock=time.monotonic):
+    """Retry one frozen acquisition, never substitute latest TF or another pose."""
+    deadline=clock()+timeout
+    while clock()<deadline and valid():
+        try:return lookup(acquisition)
+        except transform_error:spin(.01)
+    raise RuntimeError('initial alignment requires fresh stationary exact-stamp TF')
+
+
 def ign_service(service,request_type,response_type,request):
     result=subprocess.run(['ign','service','-s',service,'--reqtype',request_type,'--reptype',response_type,
         '--timeout','5000','--req',request],capture_output=True,text=True,timeout=10)
@@ -49,7 +66,7 @@ def main():
     from ros_gz_interfaces.msg import Contacts
     from std_msgs.msg import Bool,String
     from std_srvs.srv import SetBool,Trigger
-    from tf2_ros import Buffer,TransformListener
+    from tf2_ros import Buffer,TransformListener,TransformException
     from rclpy.time import Time
     from .mission_logic import (SCENARIOS,Evidence,CONTACT_SOURCES,assess_fault,resource_snapshot,
                                trial_evidence,physical_stop,fixed_alignment,pose2,route_result)
@@ -70,7 +87,7 @@ def main():
         def __init__(self):
             super().__init__('sim_mission_runner')
             self.ready=False;self.status={};self.safe=(0.,0.);self.wheel=(0.,0.)
-            self.gt=None;self.odom=None;self.contacts=0;self.contacts_seen=False;self.contact_sources={};self.stamps={};self.last_safe=-math.inf
+            self.gt=None;self.odom=None;self.wheel_stationary=False;self.contacts=0;self.contacts_seen=False;self.contact_sources={};self.stamps={};self.last_safe=-math.inf
             self.samples=[];self.file=None;self.phase='initializing';self.last_record=0.;self.last_resource=0.
             self.resources={};self.clock_last=None;self.clock_ratio=None
             self.next_command_wall=0.
@@ -104,6 +121,7 @@ def main():
             except ValueError:pass
         def command(self,msg):self.safe=(msg.linear.x,msg.angular.z);self.last_safe=time.monotonic()
         def encoder(self,msg):
+            self.wheel_stationary=stationary_twist(msg)
             self.wheel=(msg.twist.twist.linear.x,msg.twist.twist.angular.z)
             self.evidence.note('wheel',msg.header.stamp.sec*10**9+msg.header.stamp.nanosec,time.monotonic())
         def truth(self,msg):
@@ -145,11 +163,24 @@ def main():
             p,q=msg.pose.pose.position,msg.pose.pose.orientation
             return dict(stamp_ns=msg.header.stamp.sec*10**9+msg.header.stamp.nanosec,frame=msg.header.frame_id,xyz=[p.x,p.y,p.z],quaternion=[q.x,q.y,q.z,q.w])
         def initial_alignment(self):
-            self.wait(lambda:self.evidence.fresh('gt',self.get_clock().now().nanoseconds,time.monotonic()) and abs(self.wheel[0])<.02,15,'fresh stationary initial ground truth')
-            tf=self.tf.lookup_transform('map','base_footprint',Time.from_msg(self.gt.header.stamp))
+            def stationary():
+                ros=self.get_clock().now().nanoseconds;wall=time.monotonic()
+                return (self.gt is not None and stationary_twist(self.gt) and self.wheel_stationary
+                    and all(self.evidence.fresh(n,ros,wall) for n in ('gt','wheel')))
+            self.wait(stationary,15,'fresh stationary initial ground truth and wheel odometry')
+            # Freeze the independent pose and its exact stamp before waiting for
+            # a slightly delayed TF. New callbacks may update self.gt meanwhile.
+            truth=self.gt; frozen=self.pose(truth)
+            acquisition=Time.from_msg(truth.header.stamp)
+            receipt=self.evidence.sources['gt'][1]
+            def valid():
+                return (stationary() and 0<=time.monotonic()-receipt<=.3
+                    and -.1<=(self.get_clock().now().nanoseconds-frozen['stamp_ns'])*1e-9<=.3)
+            tf=wait_exact_transform(lambda stamp:self.tf.lookup_transform('map','base_footprint',stamp),
+                acquisition,self.spin,valid,TransformException)
             p,q=tf.transform.translation,tf.transform.rotation
             map_pose=(p.x,p.y,math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z)))
-            return fixed_alignment(map_pose,pose2(self.pose(self.gt)))
+            return fixed_alignment(map_pose,pose2(frozen))
         def call(self,client,request):
             self.wait(client.service_is_ready,15,'service '+client.srv_name)
             future=client.call_async(request);self.wait(future.done,15,'service reply');result=future.result()

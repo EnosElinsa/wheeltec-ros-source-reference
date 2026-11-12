@@ -158,7 +158,7 @@ def test_all_room_surfaces_have_dense_unique_seeded_texture_without_extra_collis
         assert len(model.findall('link/visual')) == len(model.findall('link/collision')) == 1
         uri = model.findtext('link/visual/material/pbr/metal/albedo_map')
         path = tmp_path / 'textures' / ('17-' + name + '.png')
-        assert uri == str(path.resolve()) and path.is_file()
+        assert uri == path.resolve().as_posix() and path.is_file()
         data = path.read_bytes()
         assert data[:8] == b'\x89PNG\r\n\x1a\n'
         width, height = struct.unpack('!II', data[16:24])
@@ -179,3 +179,14 @@ def test_all_room_surfaces_have_dense_unique_seeded_texture_without_extra_collis
     assert len(set(hashes)) == 5
     assert texture_png(17) == texture_png(17)
     assert texture_png(17) != texture_png(18)
+
+
+def test_bundled_world_uses_portable_existing_relative_texture_uris():
+    from pathlib import Path, PurePosixPath
+    world=Path(__file__).parents[1]/'worlds/room.sdf'
+    materials=ET.fromstring(world.read_text()).findall('.//albedo_map')
+    assert len(materials)==10
+    for material in materials:
+        assert '\\' not in material.text
+        assert not PurePosixPath(material.text).is_absolute()
+        assert (world.parent/material.text).is_file()

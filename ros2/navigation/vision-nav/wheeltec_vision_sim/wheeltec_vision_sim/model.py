@@ -76,7 +76,7 @@ def _shape(link, name, size, pose='0 0 0 0 0 0', color='.5 .5 .5 1', collision=T
             material=_tag(item,'material'); _tag(material,'ambient',color); _tag(material,'diffuse',color)
             if texture:
                 metal=_tag(_tag(material,'pbr'),'metal')
-                _tag(metal,'albedo_map',texture); _tag(metal,'metalness',0); _tag(metal,'roughness',1)
+                _tag(metal,'albedo_map',Path(texture).as_posix()); _tag(metal,'metalness',0); _tag(metal,'roughness',1)
         else:
             ode=_tag(_tag(_tag(item,'surface'),'friction'),'ode'); _tag(ode,'mu',1.0); _tag(ode,'mu2',1.0)
 
