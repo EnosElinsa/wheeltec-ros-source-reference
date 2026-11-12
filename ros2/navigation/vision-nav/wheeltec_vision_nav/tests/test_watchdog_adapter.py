@@ -343,3 +343,27 @@ def test_newest_malformed_cloud_cannot_be_cleared_by_older_pending_data(adapter)
     node._retry_clouds()
     assert not node.safety.sources['cloud'].valid
     assert node._cloud_pending['cloud'] == []
+
+
+@pytest.mark.parametrize('rejection', ['count', 'age'])
+def test_early_rejected_cloud_cannot_be_cleared_by_older_pending_acquisition(adapter, rejection):
+    node = node_for(adapter)
+    accepted = node.safety.sources['cloud'].stamp_ns
+    def missing(*args):
+        raise adapter.TransformException('not available yet')
+    node._tf.lookup_transform = missing
+    node._on_cloud(cloud_message(node, 1), 'cloud')
+    assert len(node._cloud_pending['cloud']) == 1
+    newer = cloud_message(node, 2)
+    if rejection == 'count':
+        newer.width, newer.points = 8, [(1., 0., .2)] * 8
+    else:
+        node.ros_now += 310_000_000
+    node._on_cloud(newer, 'cloud')
+    assert not node.safety.sources['cloud'].valid
+    assert node._cloud_pending['cloud'] == []
+    node._tf.lookup_transform = lambda *args: transform(node.ros_now)
+    node._retry_clouds()
+    assert not node.safety.sources['cloud'].valid
+    assert node.safety.sources['cloud'].stamp_ns == accepted
+    assert 'cloud' in node._input_errors

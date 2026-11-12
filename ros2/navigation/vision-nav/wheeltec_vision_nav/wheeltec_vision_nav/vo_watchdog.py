@@ -174,6 +174,8 @@ class VoWatchdog(Node):
             if not -self._cfg.future_tolerance_s <= age < self.safety.timeout(name):
                 raise ValueError("cloud acquisition stamp outside freshness deadline")
         except (ValueError, TypeError) as error:
+            # A rejected acquisition supersedes any earlier pending evidence.
+            self._cloud_pending[name].clear()
             self._note(name, msg, False)
             self._remember_error(name, error)
             return
