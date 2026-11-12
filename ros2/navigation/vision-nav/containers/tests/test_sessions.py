@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 
@@ -47,13 +48,28 @@ while True: time.sleep(.02)
 
 
 @pytest.mark.skipif(os.name == 'nt', reason='POSIX process-group signal teardown')
-def test_mission_success_does_not_hide_launch_death_at_loop_boundary(tmp_path):
-    manifest, exited = tmp_path / 'manifest.json', tmp_path / 'launch-exiting'
-    launch = "import pathlib,sys,time; pathlib.Path(sys.argv[1]).write_text('{}'); time.sleep(.05); pathlib.Path(sys.argv[2]).touch(); raise SystemExit(8)"
-    mission = "import pathlib,sys,time; p=pathlib.Path(sys.argv[1]);\nwhile not p.exists(): time.sleep(.01)"
+def test_mission_success_does_not_hide_launch_death_at_loop_boundary(tmp_path, monkeypatch):
+    manifest = tmp_path / 'manifest.json'
+    launch = "import pathlib,signal,sys,time; signal.signal(signal.SIGUSR1, lambda *_: sys.exit(8)); pathlib.Path(sys.argv[1]).write_text('{}');\nwhile True: time.sleep(.01)"
+    original_popen = subprocess.Popen
+    processes = []
+
+    def launch_then_finish_mission(command, **kwargs):
+        process = original_popen(command, **kwargs)
+        if processes:
+            # Schedule real launch death only once the real mission has exited
+            # successfully. A sleep races CI scheduling and can instead exercise
+            # early launch death, where cancelling the mission is correct.
+            assert process.wait(timeout=5.) == 0
+            processes[0].send_signal(signal.SIGUSR1)
+            assert processes[0].wait(timeout=5.) == 8
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(runner.subprocess, 'Popen', launch_then_finish_mission)
     result = runner.run_session(tmp_path,
-        [sys.executable, '-c', launch, str(manifest), str(exited)],
-        [sys.executable, '-c', mission, str(exited)], manifest, timeout=5.)
+        [sys.executable, '-c', launch, str(manifest)],
+        [sys.executable, '-c', 'raise SystemExit(0)'], manifest, timeout=5.)
     evidence = json.loads((tmp_path / 'session.json').read_text())
     assert evidence['mission_exit_code'] == 0
     assert evidence['launch_exit_code'] == 8
