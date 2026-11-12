@@ -108,12 +108,14 @@ Run launch and mission in one container so discovery and teardown are shared:
 
 ```bash
 sudo env WHEELTEC_SIM_ROOT="$WHEELTEC_SIM_ROOT" WHEELTEC_SIM_GPU=1 \
-  WHEELTEC_SIM_CPUS=32 bash run.sh python3 /work/containers/run_sim_trial.py \
+  WHEELTEC_SIM_CPUS=32 WHEELTEC_SIM_CPUSET=0-31 ROS_DOMAIN_ID=88 \
+  bash run.sh python3 /work/containers/run_sim_trial.py \
   --output /work/results/mapping-001 --database /work/results/room.db \
   --mode mapping --estimator baseline --scenario all
 # Only after successful mapping and clean database shutdown:
 sudo env WHEELTEC_SIM_ROOT="$WHEELTEC_SIM_ROOT" WHEELTEC_SIM_GPU=1 \
-  WHEELTEC_SIM_CPUS=32 bash run.sh python3 /work/containers/run_sim_trial.py \
+  WHEELTEC_SIM_CPUS=32 WHEELTEC_SIM_CPUSET=0-31 ROS_DOMAIN_ID=88 \
+  bash run.sh python3 /work/containers/run_sim_trial.py \
   --output /work/results/localization-001 --database /work/results/room.db \
   --mode localization --estimator baseline --scenario all
 ```
@@ -130,3 +132,33 @@ realtime and correctly triggered input deadlines. Raise the CPU quota or reduce
 measured workload without relaxing safety deadlines, then record the achieved
 sim/wall ratio. The initial source review does not establish live navigation
 acceptance; see the maintained experiment report for actual outcomes.
+
+Choose a CPU set available on the host; the example assumes at least 32 CPUs.
+The quota limits aggregate CPU use, while affinity also bounds the CPUs visible
+to libraries which size their worker pools automatically. Concurrent experiments
+need separate CPU sets, DDS domains and database files. Record both limits;
+changing resources does not authorize changing protection deadlines.
+
+Measured tutorial and results are maintained in
+[wheeltec-ros-textbook](https://enoselinsa.github.io/wheeltec-ros-textbook/08-advanced-applications/vision-simulation-lab/)
+and its [experiment report](https://enoselinsa.github.io/wheeltec-ros-textbook/08-advanced-applications/vision-simulation-results/).
+The report retains failed runs, dataset coverage, scene differences and the
+remaining real-vehicle and VIO acceptance work.
+
+## Stationary load recording
+
+```bash
+sudo env WHEELTEC_SIM_ROOT="$WHEELTEC_SIM_ROOT" WHEELTEC_SIM_GPU=1 \
+  WHEELTEC_SIM_CPUS=16 WHEELTEC_SIM_CPUSET=0-15 ROS_DOMAIN_ID=92 \
+  bash run.sh python3 /work/containers/run_soak_trial.py \
+  --output /work/results/stationary-load-001 --duration 1800 --estimator baseline
+```
+
+This creates a new mapping database and sends no motion commands. Schema 2
+records callback freshness continuously, clock progress, source validity,
+stationary wheel observations, raw safe-command receipt times, violation events,
+1 Hz resource snapshots and source/manifest hashes. A missed deadline remains a
+failure after recovery. The session records startup/recorder errors and bounded
+teardown. A complete stationary run does not measure moving Nav2 control load,
+acquisition-to-actuator latency or real-vehicle performance. Legacy schema 1
+records lack the new receipt coverage; they cannot be upgraded retrospectively.
