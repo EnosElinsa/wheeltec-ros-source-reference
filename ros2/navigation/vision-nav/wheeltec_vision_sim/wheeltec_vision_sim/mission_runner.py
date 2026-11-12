@@ -29,6 +29,33 @@ def wait_navigation_active(clients, request, spin, timeout=45., clock=time.monot
     raise RuntimeError('timeout waiting for all Nav2 lifecycle nodes ACTIVE: '+detail)
 
 
+def pretrial_ready(ready, health, health_received, evidence, ros_now, wall):
+    if (not ready or not health.get('ready') or health.get('state')!='READY'
+            or not 0<=wall-health_received<.3):return False
+    if not all(evidence.fresh(name,ros_now,wall) for name in ('gt','wheel','body',
+                    'rear_left','rear_right','front_left','front_right')):return False
+    for name in ('cloud','obstacles'):
+        source=health.get('sources',{}).get(name,{})
+        age=source.get('age_s')
+        if not source.get('valid') or age is None or not 0<=age+wall-health_received<.3:return False
+    observed=health.get('observed_range_m')
+    clearance=health.get('clearance_m')
+    return (observed is not None and math.isfinite(observed) and observed>1.2
+        and (clearance is None or math.isfinite(clearance) and clearance>=.7))
+
+
+def wait_stable_pretrial(predicate, spin, timeout=45., stable_s=.5, clock=time.monotonic):
+    deadline=clock()+timeout;since=None
+    while clock()<deadline:
+        now=clock()
+        if predicate():
+            if since is None:since=now
+            if now-since>=stable_s:return
+        else:since=None
+        spin(.05)
+    raise RuntimeError('timeout waiting for stable fresh pretrial health, contacts and clear corridor')
+
+
 def stationary_twist(msg):
     twist=msg.twist.twist
     linear=(twist.linear.x,twist.linear.y,twist.linear.z)
@@ -46,11 +73,27 @@ def wait_exact_transform(lookup, acquisition, spin, valid, transform_error, time
     raise RuntimeError('initial alignment requires fresh stationary exact-stamp TF')
 
 
-def ign_service(service,request_type,response_type,request):
-    result=subprocess.run(['ign','service','-s',service,'--reqtype',request_type,'--reptype',response_type,
-        '--timeout','5000','--req',request],capture_output=True,text=True,timeout=10)
-    if result.returncode or 'data: true' not in result.stdout:
-        raise RuntimeError(f'Gazebo service {service}: {result.stdout} {result.stderr}')
+def ign_service(service,request_type,response_type,request,spin=None,clock=time.monotonic):
+    command=['ign','service','-s',service,'--reqtype',request_type,'--reptype',response_type,
+        '--timeout','5000','--req',request]
+    # Even a successful create/remove call can take hundreds of milliseconds.
+    # Keep ROS contact, clock and health callbacks live throughout the call.
+    process=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    deadline=clock()+10.
+    try:
+        while process.poll() is None and clock()<deadline:
+            if spin is None:time.sleep(.01)
+            else:spin(.01)
+        if process.poll() is None:
+            process.kill();process.communicate(timeout=1.)
+            raise RuntimeError(f'Gazebo service {service}: wall deadline exceeded')
+        stdout,stderr=process.communicate(timeout=1.)
+        if process.returncode or 'data: true' not in stdout:
+            raise RuntimeError(f'Gazebo service {service}: {stdout} {stderr}')
+    finally:
+        if process.poll() is None:
+            process.kill();process.communicate(timeout=1.)
+
 
 def main():
     import rclpy
@@ -86,7 +129,7 @@ def main():
     class Runner(Node):
         def __init__(self):
             super().__init__('sim_mission_runner')
-            self.ready=False;self.status={};self.safe=(0.,0.);self.wheel=(0.,0.)
+            self.ready=False;self.status={};self.health_received=-math.inf;self.safe=(0.,0.);self.wheel=(0.,0.)
             self.gt=None;self.odom=None;self.wheel_stationary=False;self.contacts=0;self.contacts_seen=False;self.contact_sources={};self.stamps={};self.last_safe=-math.inf
             self.samples=[];self.file=None;self.phase='initializing';self.last_record=0.;self.last_resource=0.
             self.resources={};self.clock_last=None;self.clock_ratio=None
@@ -117,7 +160,7 @@ def main():
         def note(self,name,msg):
             self.stamps[name]=dict(stamp_ns=msg.header.stamp.sec*10**9+msg.header.stamp.nanosec,receipt_wall=time.monotonic())
         def health(self,msg):
-            try:self.status=json.loads(msg.data)
+            try:self.status=json.loads(msg.data);self.health_received=time.monotonic()
             except ValueError:pass
         def command(self,msg):self.safe=(msg.linear.x,msg.angular.z);self.last_safe=time.monotonic()
         def encoder(self,msg):
@@ -230,9 +273,15 @@ def main():
         for scenario in scenarios:
             for trial in range(args.repeats):
                 record=dict(scenario=scenario,trial=trial,seed=args.seed,started_wall=time.monotonic())
-                start_index=len(node.samples);collision_start=node.evidence.collision_events;node.phase=f'{scenario}/{trial}'
+                node.phase=f'prepare/{scenario}/{trial}'
+                start_index=len(node.samples);collision_start=node.evidence.collision_events
                 try:
+                    wait_stable_pretrial(lambda:pretrial_ready(node.ready,node.status,node.health_received,
+                        node.evidence,node.get_clock().now().nanoseconds,time.monotonic()),node.spin)
                     node.recover()
+                    # Preparation cannot hide a gap during an active trial.
+                    start_index=len(node.samples);collision_start=node.evidence.collision_events
+                    node.phase=f'{scenario}/{trial}'
                     if scenario=='motion':
                         if args.mode=='localization':raise RuntimeError('motion primitives require mapping; route uses Nav2')
                         for name,v,w,duration in [('straight',.12,0.,3.),('turn',.1,.12,4.),('stop',0.,0.,1.)]:
@@ -250,22 +299,22 @@ def main():
                         yaw=math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z));name=f'fault_obstacle_{trial}_{rng.randrange(100000)}'
                         sdf=f'<sdf version="1.8"><model name="{name}"><static>true</static><pose>{p.x+.85*math.cos(yaw)} {p.y+.85*math.sin(yaw)} .5 0 0 {yaw}</pose><link name="body"><collision name="box"><geometry><box><size>.2 .8 1</size></box></geometry></collision><visual name="box"><geometry><box><size>.2 .8 1</size></box></geometry></visual></link></model></sdf>'
                         sdf_path=out/(name+'.sdf');sdf_path.write_text(sdf)
-                        ign_service('/world/wheeltec_room/create','ignition.msgs.EntityFactory','ignition.msgs.Boolean',f'sdf_filename: "{sdf_path.as_posix()}"')
+                        ign_service('/world/wheeltec_room/create','ignition.msgs.EntityFactory','ignition.msgs.Boolean',f'sdf_filename: "{sdf_path.as_posix()}"',spin=node.spin)
                         if args.mode=='mapping':node.spin(5,.15,0.,True)
                         else:node.send_goal(1.2);node.spin(5)
                         record.update(passed=node.contacts_seen and abs(node.safe[0])<1e-5 and not any(s['contacts'] for s in node.samples[start_index:]))
-                        ign_service('/world/wheeltec_room/remove','ignition.msgs.Entity','ignition.msgs.Boolean',f'name: "{name}", type: MODEL')
+                        ign_service('/world/wheeltec_room/remove','ignition.msgs.Entity','ignition.msgs.Boolean',f'name: "{name}", type: MODEL',spin=node.spin)
                     else:
                         if args.mode=='localization':node.send_goal(1.2)
                         node.moving();record['pre_fault_motion_observed']=True
                         fault='vision' if scenario=='old_goal' else scenario;onset=time.monotonic()
                         if fault=='pause':
-                            node.paused=True;ign_service('/world/wheeltec_room/control','ignition.msgs.WorldControl','ignition.msgs.Boolean','pause: true')
+                            node.paused=True;ign_service('/world/wheeltec_room/control','ignition.msgs.WorldControl','ignition.msgs.Boolean','pause: true',spin=node.spin)
                         elif fault=='actuator_lease':node.drop_pub.publish(Bool(data=True));node.spin(.1)
                         else:node.fault(fault,True)
                         node.spin(2.,.1,0.,args.mode=='mapping');recovery=time.monotonic()
                         if fault=='pause':
-                            ign_service('/world/wheeltec_room/control','ignition.msgs.WorldControl','ignition.msgs.Boolean','pause: false');node.paused=False;node.resume_grace_until=time.monotonic()+.3
+                            ign_service('/world/wheeltec_room/control','ignition.msgs.WorldControl','ignition.msgs.Boolean','pause: false',spin=node.spin);node.paused=False;node.resume_grace_until=time.monotonic()+.3
                         elif fault=='actuator_lease':
                             node.close_goal();node.spin(.3,drive=args.mode=='mapping');node.drop_pub.publish(Bool(data=False))
                         else:node.fault(fault,False)
