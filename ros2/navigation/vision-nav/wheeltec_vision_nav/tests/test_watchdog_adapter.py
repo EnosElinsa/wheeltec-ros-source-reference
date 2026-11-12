@@ -49,7 +49,7 @@ def adapter(monkeypatch):
             setattr(modules[package], symbol, Message)
     modules["geometry_msgs.msg"].Twist = Twist
     modules["rclpy.time"].Time = Time
-    modules["rclpy.node"].Node = object
+    modules["rclpy.node"].Node = type("Node", (), {"__init__": lambda self, *args: None})
     modules["tf2_ros"].TransformException = type("TransformException", (Exception,), {})
     modules["sensor_msgs_py"].point_cloud2 = NS(read_points=lambda msg, **kwargs: msg.points)
     path = Path(__file__).parents[1] / "wheeltec_vision_nav" / "vo_watchdog.py"
@@ -367,3 +367,32 @@ def test_early_rejected_cloud_cannot_be_cleared_by_older_pending_acquisition(ada
     assert not node.safety.sources['cloud'].valid
     assert node.safety.sources['cloud'].stamp_ns == accepted
     assert 'cloud' in node._input_errors
+
+
+def test_watchdog_bounds_unread_dynamic_tf_but_retains_static_history(adapter, monkeypatch):
+    class FakeConfig:
+        wheel_backup = supervised_reverse = False
+        mode = 'mapping'
+    class FakeQos:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+    monkeypatch.setattr(adapter, 'fields', lambda obj: [])
+    monkeypatch.setattr(adapter, 'SafetyConfig', FakeConfig)
+    monkeypatch.setattr(adapter, 'SafetyController', lambda cfg: NS(cfg=cfg))
+    monkeypatch.setattr(adapter, 'QoSProfile', FakeQos)
+    monkeypatch.setattr(adapter, 'ReliabilityPolicy', NS(RELIABLE='reliable', BEST_EFFORT='best_effort'))
+    monkeypatch.setattr(adapter, 'DurabilityPolicy', NS(VOLATILE='volatile', TRANSIENT_LOCAL='transient'))
+    monkeypatch.setattr(adapter, 'ClockType', NS(STEADY_TIME='steady'))
+    captured = []
+    monkeypatch.setattr(adapter, 'TransformListener', lambda *args, **kwargs: captured.append(kwargs))
+    class StubNode(adapter.VoWatchdog):
+        def declare_parameter(self, name, value): return NS(value=value)
+        def create_publisher(self, *args): return NS(publish=lambda msg: None)
+        def create_subscription(self, *args): pass
+        def create_service(self, *args): pass
+        def create_timer(self, *args, **kwargs): pass
+    node = StubNode()
+    qos = captured[0]['qos']
+    assert qos.depth == 10 and qos.reliability == 'reliable' and qos.durability == 'volatile'
+    assert 'static_qos' not in captured[0]
+    assert node._cloud_pending == {'cloud': [], 'obstacles': []}

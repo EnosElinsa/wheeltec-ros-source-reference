@@ -82,7 +82,13 @@ class VoWatchdog(Node):
         self._cancellations = {}
         self._cancel_futures = {}
         self._tf = Buffer(cache_time=Duration(seconds=5.0))
-        self._listener = TransformListener(self._tf, self)
+        # The safety buffer retains five seconds of accepted transforms itself.
+        # Bound unread dynamic TF so old reliable samples cannot accumulate
+        # seconds of callback latency behind high-rate sensors. Static TF keeps
+        # TransformListener's transient-local history for the complete tree.
+        dynamic_tf_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE,
+                                    durability=DurabilityPolicy.VOLATILE)
+        self._listener = TransformListener(self._tf, self, qos=dynamic_tf_qos)
         qos = QoSProfile(depth=2, reliability=ReliabilityPolicy.BEST_EFFORT)
         transient = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                                reliability=ReliabilityPolicy.RELIABLE)
