@@ -5,6 +5,7 @@ from pathlib import Path
 from .config import generate_config
 from .dataset import load_dataset
 from .rectification import StereoRectifier
+from .runtime import playback_policy
 
 
 def main(argv=None):
@@ -20,6 +21,7 @@ def main(argv=None):
             for path in camera.paths:
                 rect.image(path, side)
         report = dict(schema_version=1, valid=True, data=data.identity(),
+                      playback_policy=playback_policy(data, args.mode),
                       rectified_camera_info=[rect.camera_info(i) for i in range(2)],
                       body_T_rect=[t.tolist() for t in rect.body_T_rect])
         report_path = None
@@ -33,6 +35,7 @@ def main(argv=None):
                        data={key: report['data'][key] for key in ('mav0', 'sha256', 'camera_frames', 'imu_samples', 'gt_samples')},
                        file_count=len(report['data']['files']),
                        validation_json=str(report_path) if report_path else None,
+                       playback_policy={key: value for key, value in report['playback_policy'].items() if key != 'excluded'},
                        identity_note='Full per-file hashes are saved with --output; stdout contains the aggregate identity.')
         print(json.dumps(summary, indent=2))
     except (OSError, ValueError, KeyError, TypeError) as exc:

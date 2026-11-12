@@ -18,9 +18,27 @@ def stamp_parts(t):
     return divmod(t, 1_000_000_000)
 
 
-def events(data):
+def playback_policy(data, mode):
+    if mode not in ('stereo', 'vio'):
+        raise ValueError('mode must be stereo or vio')
+    excluded = []
+    if mode == 'vio':
+        for index, t in enumerate(data.cameras[0].times):
+            reason = 'before_first_imu' if t < data.imu.times[0] else 'after_last_imu' if t > data.imu.times[-1] else None
+            if reason:
+                excluded.append(dict(index=index, timestamp_ns=t, reason=reason))
+    return dict(mode=mode, expected_stereo_frames=len(data.cameras[0].times),
+                playable_stereo_frames=len(data.cameras[0].times)-len(excluded),
+                excluded_stereo_frames=len(excluded), excluded=excluded,
+                imu_first_ns=data.imu.times[0], imu_last_ns=data.imu.times[-1],
+                policy='VIO excludes images outside inclusive raw IMU time support; stereo VO keeps every image; no padding or retimestamping',
+                coverage_denominator='all original stereo timestamps, including excluded images')
+
+
+def events(data, mode='stereo'):
+    excluded = {item['index'] for item in playback_policy(data, mode)['excluded']}
     imu = ((t, 0, i) for i, t in enumerate(data.imu.times))
-    stereo = ((t, 1, i) for i, t in enumerate(data.cameras[0].times))
+    stereo = ((t, 1, i) for i, t in enumerate(data.cameras[0].times) if i not in excluded)
     for t, kind, i in heapq.merge(imu, stereo):
         yield t, 'imu' if kind == 0 else 'stereo', i
 
@@ -52,6 +70,7 @@ def prepare_run(dataset, output, mode, run_estimator):
     config = generate_config(data, rect, output / 'config', mode)
     identity = data.identity()
     manifest = dict(schema_version=1, data=identity, mode=mode, run_estimator=run_estimator,
+                    playback_policy=playback_policy(data, mode),
                     timestamp_policy='original integer nanoseconds; 1x CSV time; no resampling',
                     frame_id=FRAME, body_origin='imu0, full 6DoF; not planar chassis',
                     ground_truth_published=False, imu_orientation='unavailable; covariance[0]=-1',

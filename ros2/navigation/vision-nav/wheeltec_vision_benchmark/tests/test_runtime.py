@@ -134,3 +134,50 @@ def test_rank_one_alignment_uses_orientation_only_for_free_spin():
     assert rank == 1
     assert np.allclose(r, rotation(q))
     assert np.allclose(t, 0.)
+
+
+@pytest.mark.parametrize('leading', [True, False])
+def test_vio_skips_only_imu_unsupported_images_without_changing_raw_data(euroc, tmp_path, capsys, leading):
+    from wheeltec_vision_benchmark.dataset import load_dataset
+    from wheeltec_vision_benchmark.runtime import events, prepare_run, estimator_spec
+    from wheeltec_vision_benchmark.trajectory import ground_truth, evaluate
+    from wheeltec_vision_benchmark.validate import main as validate
+    path = euroc / 'imu0/data.csv'
+    rows = path.read_text().splitlines()
+    # MH05-style 20 ms IMU start delay, or a symmetric unsupported final image.
+    path.write_text('\n'.join([rows[0], *(rows[5:] if leading else rows[1:-4])]) + '\n')
+    data = load_dataset(euroc)
+    original_times = data.cameras[0].times.copy()
+    original_identity = data.identity()
+    vo = [t for t, kind, _ in events(data, mode='stereo') if kind == 'stereo']
+    vio = [t for t, kind, _ in events(data, mode='vio') if kind == 'stereo']
+    assert vo == original_times
+    assert vio == (original_times[1:] if leading else original_times[:-1])
+    assert [t for t, kind, _ in events(data, mode='vio') if kind == 'imu'] == data.imu.times
+    assert data.cameras[0].times == original_times
+    assert data.identity() == original_identity
+    out = tmp_path / 'vio'
+    prepare_run(euroc, out, 'vio', True)
+    manifest = json.loads((out / 'manifest.json').read_text())
+    policy = manifest['playback_policy']
+    assert policy['expected_stereo_frames'] == 5
+    assert policy['playable_stereo_frames'] == 4
+    assert policy['excluded_stereo_frames'] == 1
+    assert policy['excluded'][0]['timestamp_ns'] == original_times[0 if leading else -1]
+    assert policy['excluded'][0]['reason'] == ('before_first_imu' if leading else 'after_last_imu')
+    assert manifest['data']['files'] == original_identity['files']
+    assert estimator_spec(out / 'config/vins.yaml', 'vio')['parameters'][0]['wait_imu_to_init'] is True
+    assert estimator_spec(out / 'config/vins.yaml', 'stereo')['parameters'][0]['wait_imu_to_init'] is False
+    estimates = [pose for pose in ground_truth(data) if pose.t in vio]
+    score = evaluate(ground_truth(data), estimates, original_times)
+    assert score['expected_frames'] == 5
+    assert score['coverage'] == .8
+    assert validate(['--dataset', str(euroc), '--mode', 'vio', '--output', str(tmp_path / 'validation')]) == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary['playback_policy']['excluded_stereo_frames'] == 1
+    assert 'excluded' not in summary['playback_policy']
+    assert summary['data']['camera_frames'] == 5
+    assert validate(['--dataset', str(euroc), '--mode', 'stereo']) == 0
+    vo_summary = json.loads(capsys.readouterr().out)
+    assert vo_summary['playback_policy']['playable_stereo_frames'] == 5
+    assert vo_summary['playback_policy']['excluded_stereo_frames'] == 0

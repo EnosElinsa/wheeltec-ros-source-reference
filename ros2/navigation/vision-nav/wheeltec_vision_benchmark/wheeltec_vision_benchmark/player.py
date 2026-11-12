@@ -9,7 +9,7 @@ import numpy as np
 from .dataset import load_dataset
 from .geometry import quaternion
 from .rectification import StereoRectifier
-from .runtime import CAMERA_FRAMES, FRAME, events, prepare_run, stamp_parts
+from .runtime import CAMERA_FRAMES, FRAME, events, playback_policy, prepare_run, stamp_parts
 from .trajectory import Pose, save_evaluation
 
 
@@ -52,6 +52,7 @@ def main(argv=None):
                 if self.run_estimator:
                     raise ValueError('run_estimator requires euroc.launch.py (it creates the VINS process)')
                 self.data, self.rect, _ = prepare_run(parameter('dataset'), self.output, self.mode, False)
+            self.playback_policy = playback_policy(self.data, self.mode)
             self.streams = []
             def writer(name, fields):
                 stream = (self.output / name).open('x', encoding='utf-8', newline='')
@@ -204,9 +205,10 @@ def main(argv=None):
             settle = time.monotonic() + .5
             while rclpy.ok() and time.monotonic() < settle:
                 rclpy.spin_once(self, timeout_sec=.01)
-            schedule = iter(events(self.data))
+            schedule = iter(events(self.data, self.mode))
             item = next(schedule, None)
-            self.first_ns = item[0]
+            # Keep the original sequence epoch, including excluded leading images.
+            self.first_ns = min(self.data.imu.times[0], self.data.cameras[0].times[0])
             self.start_wall_ns = time.monotonic_ns()
             last_clock_wall = 0
             while rclpy.ok() and item is not None:
@@ -237,6 +239,7 @@ def main(argv=None):
             if self.invalid_output:
                 failure = failure or 'invalid estimator frames/poses/timestamps; inspect runtime.json and raw trajectory'
             report = dict(schema_version=1, failure=failure, invalid_output=self.invalid_output,
+                          playback_policy=self.playback_policy,
                           stereo_published=self.stereo_count, imu_published=self.imu_count,
                           odom_samples=self.odom_count, visual_status_samples=self.info_count,
                           visual_lost_samples=self.visual_lost, estimator_enabled=self.run_estimator,

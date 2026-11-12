@@ -153,8 +153,6 @@ def load_dataset(path):
         raise ValueError('stereo resolutions must match')
     if np.linalg.norm(cameras[0].body_T_sensor[:3, 3] - cameras[1].body_T_sensor[:3, 3]) < 1e-5:
         raise ValueError('stereo baseline must be nonzero')
-    if imu_times[0] > cameras[0].times[0] or imu_times[-1] < cameras[0].times[-1]:
-        raise ValueError('IMU must bracket the stereo sequence')
     _, gt_times, gt_rows = read_csv(root / 'state_groundtruth_estimate0/data.csv', 8)
     gt_values = np.array([row[:7] for row in gt_rows], dtype=float)
     if not np.isfinite(gt_values).all():

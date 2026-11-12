@@ -43,6 +43,20 @@ nanoseconds; stereo pairs must match exactly. The six IMU columns must be in
 EuRoC gyro x/y/z `rad s^-1`, then accelerometer x/y/z `m s^-2` order. No sample
 time is rounded, re-stamped, shifted, resampled or replaced with a timer grid.
 
+Raw IMU and camera sequences need not share endpoints: for example, MH05's first
+image precedes its first IMU sample by 20 ms. The loader and dataset hashes retain
+every original sample. Stereo VO plays every image. VIO plays only images whose
+original timestamps lie within the inclusive first-to-last raw IMU interval;
+it skips unsupported leading/trailing images without padding IMU or changing
+timestamps. `playback_policy` in the manifest, validation and runtime JSON records
+every excluded original index/time with `before_first_imu` or `after_last_imu`,
+and the counts of expected/playable/excluded stereo frames. Concise validation
+stdout reports these counts. The replay wall epoch still starts at the original
+earliest sensor timestamp. Coverage always counts **all original stereo images**,
+so these exclusions reduce coverage explicitly instead of removing the loss
+from the denominator. This endpoint policy does not interpolate or fill internal
+IMU gaps.
+
 ## Run
 
 Use an unused ROS domain so the benchmark `/clock` and TF do not reach a live
