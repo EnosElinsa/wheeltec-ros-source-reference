@@ -88,6 +88,7 @@ if grep -q 'not found' evidence/stereo-odometry-ldd.txt; then
   echo 'Unresolved runtime dependency; keep this workspace for diagnosis' >&2
   exit 1
 fi
-python3 -m pytest -q src/wheeltec_vision_nav/tests
+python3 -m pytest -c /dev/null -q "$workspace/src/wheeltec_vision_nav/tests" \
+  --ignore="$workspace/src/wheeltec_vision_nav/tests/test_ros_runtime.py"
 echo "Evaluation overlay built: $workspace/install/local_setup.bash"
 echo 'This build is not evidence of sensor calibration, tracking accuracy or navigation readiness.'

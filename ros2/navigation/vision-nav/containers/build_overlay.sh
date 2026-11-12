@@ -37,5 +37,7 @@ python3 --version > "$root/results/environment/python.txt"
 ign gazebo --versions > "$root/results/environment/gazebo.txt"
 colcon test --event-handlers console_direct+
 colcon test-result --verbose
+WHEELTEC_RUN_ROS_TESTS=1 ROS_DOMAIN_ID=91 ROS_LOCALHOST_ONLY=1 \
+  python3 -m pytest -c /dev/null -q "$root/source/wheeltec_vision_nav/tests/test_ros_runtime.py"
 mkdir -p "$root/sim_ws/evidence"
 touch "$root/sim_ws/evidence/overlay.complete"
