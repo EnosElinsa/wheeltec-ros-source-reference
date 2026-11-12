@@ -87,6 +87,18 @@ def test_rejects_duplicates_missing_images_and_wrong_units(euroc):
         load_dataset(euroc)
 
 
+@pytest.mark.parametrize('order', [(0, 4, 5, 6, 1, 2, 3), (0, 2, 1, 3, 4, 5, 6)])
+def test_rejects_permuted_imu_header_and_value_columns(euroc, order):
+    from wheeltec_vision_benchmark.dataset import load_dataset
+    path = euroc / 'imu0/data.csv'
+    with path.open(newline='') as stream:
+        rows = list(csv.reader(stream))
+    with path.open('w', newline='') as stream:
+        csv.writer(stream).writerows([[row[i] for i in order] for row in rows])
+    with pytest.raises(ValueError, match='order'):
+        load_dataset(euroc)
+
+
 def test_rectification_geometry_and_body_extrinsics(euroc, tmp_path):
     import cv2
     from wheeltec_vision_benchmark.dataset import load_dataset

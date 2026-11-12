@@ -82,7 +82,13 @@ def test_validation_and_scoring_entrypoints(euroc, tmp_path, capsys):
     from wheeltec_vision_benchmark.trajectory import main as score
     out = tmp_path / 'validation'
     assert validate(['--dataset', str(euroc), '--output', str(out)]) == 0
-    assert json.loads((out / 'validation.json').read_text())['valid'] is True
+    report = json.loads((out / 'validation.json').read_text())
+    summary = json.loads(capsys.readouterr().out)
+    assert report['valid'] is True
+    assert 'files' not in summary['data']
+    assert summary['data']['sha256'] == report['data']['sha256']
+    assert summary['file_count'] == len(report['data']['files'])
+    assert summary['validation_json'] == str(out / 'validation.json')
     with pytest.raises(SystemExit) as exc:
         validate(['--dataset', str(euroc), '--output', str(out)])
     assert exc.value.code == 2
@@ -91,3 +97,40 @@ def test_validation_and_scoring_entrypoints(euroc, tmp_path, capsys):
     assert score(['--dataset', str(euroc), '--trajectory', str(trajectory),
                   '--output-dir', str(tmp_path / 'score')]) == 1
     assert 'no_output' in capsys.readouterr().out
+
+
+def test_validator_without_output_reports_digest_without_creating_files(euroc, tmp_path, capsys, monkeypatch):
+    from wheeltec_vision_benchmark.validate import main
+    monkeypatch.chdir(tmp_path)
+    assert main(['--dataset', str(euroc)]) == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary['validation_json'] is None
+    assert summary['file_count'] == 18
+    assert summary['data']['sha256']
+    assert 'files' not in summary['data']
+    assert list(tmp_path.iterdir()) == [euroc.parent]
+
+
+def test_rank_one_alignment_fits_line_direction_before_orientation():
+    from wheeltec_vision_benchmark.trajectory import Pose, evaluate
+    q = np.array([0., 0., 0., 1.])
+    gt = [Pose(i*1_000_000_000, np.array([float(i), 0., 0.]), q) for i in range(3)]
+    est = [Pose(i*1_000_000_000, np.array([0., float(i), 0.]), q) for i in range(3)]
+    score = evaluate(gt, est, [p.t for p in gt])
+    assert score['alignment_position_rank'] == 1
+    assert score['ate_translation_rmse_m'] < 1e-12
+    r = np.array(score['alignment_rotation'])
+    assert np.allclose(r @ [0., 1., 0.], [1., 0., 0.])
+    assert np.linalg.det(r) == pytest.approx(1.)
+
+
+def test_rank_one_alignment_uses_orientation_only_for_free_spin():
+    from wheeltec_vision_benchmark.geometry import rotation
+    from wheeltec_vision_benchmark.trajectory import Pose, alignment
+    q = np.array([np.sin(.3), 0., 0., np.cos(.3)])
+    gt = [Pose(i, np.array([float(i), 0., 0.]), q) for i in range(3)]
+    est = [Pose(i, np.array([float(i), 0., 0.]), np.array([0., 0., 0., 1.])) for i in range(3)]
+    r, t, rank = alignment(gt, est)
+    assert rank == 1
+    assert np.allclose(r, rotation(q))
+    assert np.allclose(t, 0.)

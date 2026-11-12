@@ -114,9 +114,9 @@ def load_dataset(path):
         if not np.isfinite(float(imu_cfg.get(key, np.nan))) or float(imu_cfg[key]) <= 0:
             raise ValueError(f'IMU requires positive SI noise parameter {key}')
     header, imu_times, imu_rows = read_csv(root / 'imu0/data.csv', 7)
-    units = ','.join(header).replace(' ', '')
-    if not all(x in units for x in ('w_RS_S_x[rads^-1]', 'w_RS_S_y[rads^-1]', 'w_RS_S_z[rads^-1]',
-                                     'a_RS_S_x[ms^-2]', 'a_RS_S_y[ms^-2]', 'a_RS_S_z[ms^-2]')):
+    fields = [''.join(field.split()) for field in header[1:7]]
+    if fields != ['w_RS_S_x[rads^-1]', 'w_RS_S_y[rads^-1]', 'w_RS_S_z[rads^-1]',
+                  'a_RS_S_x[ms^-2]', 'a_RS_S_y[ms^-2]', 'a_RS_S_z[ms^-2]']:
         raise ValueError('IMU CSV units must be EuRoC rad s^-1 and m s^-2 in gyro/accel order')
     imu_values = np.array([row[:6] for row in imu_rows], dtype=float)
     if not np.isfinite(imu_values).all():

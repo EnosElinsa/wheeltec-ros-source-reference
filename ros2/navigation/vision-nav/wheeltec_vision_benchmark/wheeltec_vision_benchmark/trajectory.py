@@ -74,13 +74,24 @@ def alignment(reference, estimate):
     covariance = (e - ec).T @ (g - gc)
     u, _, vt = np.linalg.svd(covariance)
     rank = int(np.linalg.matrix_rank(covariance))
-    if rank < 2:
-        # Collinear positions do not determine rotation about their line.
+    if rank == 0:
+        # Constant positions determine no alignment rotation.
         r = reference[0].matrix()[:3, :3] @ estimate[0].matrix()[:3, :3].T
     else:
         correction = np.eye(3)
         correction[2, 2] = np.linalg.det(vt.T @ u.T)
         r = vt.T @ correction @ u.T
+        if rank == 1:
+            # The dominant singular vectors determine a directed line match.
+            # Preserve that constraint, choosing only its free spin from pose orientation.
+            axis = vt[0]
+            x, y, z = axis
+            skew = np.array([[0., -z, y], [z, 0., -x], [-y, x, 0.]])
+            orientation = reference[0].matrix()[:3, :3] @ estimate[0].matrix()[:3, :3].T
+            relative = orientation @ r.T
+            angle = np.arctan2(np.sum(skew * relative), np.trace(relative) - axis @ relative @ axis)
+            spin = np.eye(3) + np.sin(angle) * skew + (1. - np.cos(angle)) * (skew @ skew)
+            r = spin @ r
     return r, gc - r @ ec, rank
 
 

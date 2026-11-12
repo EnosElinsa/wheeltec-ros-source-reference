@@ -31,8 +31,10 @@ ros2 run wheeltec_vision_benchmark validate_euroc \
 The sequence directory or its `mav0` directory is accepted. All four sensors
 (`cam0`, `cam1`, `imu0`, `state_groundtruth_estimate0`) need `data.csv` and
 `sensor.yaml`; image paths must remain inside the camera `data` directory.
-The validator decodes every image, validates its resolution, and reports SHA-256
-identities for every CSV, YAML and image. Missing GT is an error: playback for
+The validator decodes every image and validates its resolution. Terminal output
+contains sample/file counts and the aggregate SHA-256 identity; `--output` saves
+the complete per-file CSV/YAML/image identities in `validation.json`. Without
+`--output`, no result directory is created. Missing GT is an error: playback for
 this benchmark must remain independently scoreable.
 
 Only the EuRoC 20 Hz pinhole/radial-tangential stereo and 200 Hz IMU calibration
@@ -148,8 +150,9 @@ fixed at 1**. Translation ATE is computed after alignment; time-RPE uses pose
 pairs separated by 1.0 s (within the same tolerance), reporting translation and
 rotation RMSE. No interpolation or scale optimization hides missing data or
 scale drift. Collinear/constant positions do not identify all alignment axes;
-the first associated orientations resolve that degeneracy, and position rank
-is reported.
+the line direction remains constrained by positions and the first associated
+orientations resolve only the free rotation about that line. Constant positions
+use the full orientation fallback. Position rank is reported.
 
 Coverage is the fraction of *all input stereo timestamps* with a unique valid
 estimate and associated GT, including initialization and tracking loss in the
