@@ -3,6 +3,11 @@ set -euo pipefail
 [[ "${ROS_DISTRO:-}" == humble ]] || { echo 'Run inside the Humble image' >&2; exit 2; }
 root="${WHEELTEC_WORK_ROOT:-/work}"
 export VINS_BUILD_JOBS="${VINS_BUILD_JOBS:-4}"
+export MAKEFLAGS="-j$VINS_BUILD_JOBS -l$VINS_BUILD_JOBS"
+bash "$root/containers/build_ceres.sh"
+export CMAKE_PREFIX_PATH="$root/ceres_install:${CMAKE_PREFIX_PATH:-}"
+export LD_LIBRARY_PATH="$root/ceres_install/lib:${LD_LIBRARY_PATH:-}"
+export Ceres_DIR="$root/ceres_install/lib/cmake/Ceres"
 if [[ ! -f "$root/vins_ws/evidence/overlay.complete" ]]; then
   if [[ -e "$root/vins_ws" ]]; then
     echo "Previous overlay build is incomplete: inspect $root/vins_ws/evidence/build.log before resuming its build stages" >&2
@@ -32,3 +37,5 @@ python3 --version > "$root/results/environment/python.txt"
 ign gazebo --versions > "$root/results/environment/gazebo.txt"
 colcon test --event-handlers console_direct+
 colcon test-result --verbose
+mkdir -p "$root/sim_ws/evidence"
+touch "$root/sim_ws/evidence/overlay.complete"

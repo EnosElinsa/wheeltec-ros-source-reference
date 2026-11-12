@@ -29,8 +29,13 @@ curl --fail --location --retry 2 \
   "https://gist.githubusercontent.com/matlabbe/ebbb343cd744da9d6d6d6ded2e1557fd/raw/$patch_ref" \
   --output "$workspace/evidence/rtabmap-vins.patch"
 echo "644c7fd1c2b2b32ed1645ae689eb2ac586f444ecc3933ff556dc6ba9cd5f7a49  $workspace/evidence/rtabmap-vins.patch" | sha256sum --check
-git -C "$workspace/src/vins-fusion" apply --check "$workspace/evidence/rtabmap-vins.patch"
-git -C "$workspace/src/vins-fusion" apply "$workspace/evidence/rtabmap-vins.patch"
+# This pinned port already fixes Duration constructors and disables GPU_MODE.
+# Exclude only those three already-resolved file hunks from the older gist.
+patch_exclusions=(--exclude=loop_fusion/src/utility/CameraPoseVisualization.cpp
+                  --exclude=vins/src/featureTracker/feature_tracker.h
+                  --exclude=vins/src/utility/visualization.cpp)
+git -C "$workspace/src/vins-fusion" apply --check "${patch_exclusions[@]}" "$workspace/evidence/rtabmap-vins.patch"
+git -C "$workspace/src/vins-fusion" apply "${patch_exclusions[@]}" "$workspace/evidence/rtabmap-vins.patch"
 git -C "$workspace/src/rtabmap" apply --check "$package_source/tools/rtabmap_vins_visual_health.patch"
 git -C "$workspace/src/rtabmap" apply "$package_source/tools/rtabmap_vins_visual_health.patch"
 git -C "$workspace/src/rtabmap" apply --check "$package_source/tools/rtabmap_vins_extrinsics.patch"
@@ -47,22 +52,33 @@ cd "$workspace"
 jobs="${VINS_BUILD_JOBS:-2}"
 [[ "$jobs" =~ ^[1-9][0-9]*$ ]] || { echo 'VINS_BUILD_JOBS must be a positive integer' >&2; exit 2; }
 export CMAKE_BUILD_PARALLEL_LEVEL="$jobs"
+export MAKEFLAGS="-j$jobs -l$jobs"
+ceres_args=()
+if [[ -n "${Ceres_DIR:-}" ]]; then ceres_args+=("-DCeres_DIR=$Ceres_DIR"); fi
 colcon build --merge-install --base-paths src/vins-fusion --packages-select camera_models vins \
-  --executor sequential --cmake-args -DCMAKE_BUILD_TYPE=Release -DGPU_MODE=OFF -DBUILD_TESTING=OFF
+  --executor sequential --cmake-args -DCMAKE_BUILD_TYPE=Release -DGPU_MODE=OFF -DBUILD_TESTING=OFF "${ceres_args[@]}"
 # setup scripts sometimes inspect unset variables.
 set +u
 source "$workspace/install/local_setup.bash"
 set -u
 cmake -S src/rtabmap -B build/rtabmap-core -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX="$workspace/install" -DWITH_VINS_FUSION=ON \
-  -DBUILD_APP=OFF -DBUILD_TOOLS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PERF_TESTS=OFF -DWITH_QT=OFF -DBUILD_TESTING=OFF
+  -DCMAKE_INSTALL_PREFIX="$workspace/install" -DWITH_VINS_FUSION=ON -DWITH_CERES=ON \
+  -DBUILD_APP=OFF -DBUILD_TOOLS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PERF_TESTS=OFF -DWITH_QT=ON -DBUILD_TESTING=OFF "${ceres_args[@]}"
 cmake --build build/rtabmap-core --parallel "$jobs"
 cmake --install build/rtabmap-core
 grep -q '^WITH_VINS_FUSION:BOOL=ON$' build/rtabmap-core/CMakeCache.txt
 cp build/rtabmap-core/CMakeCache.txt evidence/rtabmap-core-CMakeCache.txt
+# Old Humble exports share a generic include root. GCC ignores an -I override
+# when that same directory also occurs as -isystem. Unique source/generated
+# include paths keep this pinned overlay ahead of installed RTAB-Map headers.
+overlay_headers="-I$workspace/build/rtabmap_msgs/rosidl_generator_cpp"
+for package in rtabmap_conversions rtabmap_sync rtabmap_odom rtabmap_util rtabmap_slam; do
+  overlay_headers+=" -I$workspace/src/rtabmap_ros/$package/include"
+done
 colcon build --merge-install --base-paths src/rtabmap_ros src/wheeltec_vision_nav \
   --packages-select rtabmap_msgs rtabmap_conversions rtabmap_sync rtabmap_odom rtabmap_util rtabmap_slam wheeltec_vision_nav \
-  --executor sequential --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+  --executor sequential --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+  "-DCMAKE_CXX_FLAGS=$overlay_headers"
 set +u
 source "$workspace/install/local_setup.bash"
 set -u

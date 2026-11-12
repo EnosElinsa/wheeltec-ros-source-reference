@@ -20,7 +20,7 @@ sudo docker build -t wheeltec-vision-sim:humble-20261112 .
 #   --build-arg http_proxy --build-arg https_proxy -t wheeltec-vision-sim:humble-20261112 .
 sudo --preserve-env=HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy,NO_PROXY,no_proxy \
   env WHEELTEC_SIM_ROOT="$WHEELTEC_SIM_ROOT" WHEELTEC_SIM_GPU=1 \
-  bash run.sh bash /work/containers/build_overlay.sh
+  bash build.sh
 ```
 
 Docker native CDI requires a valid generated NVIDIA CDI specification; validate
@@ -28,6 +28,21 @@ with `nvidia-ctk cdi list`. `run.sh` maps only the selected index and restricts
 resources. `nvidia-smi` validates mapping, while Gazebo camera output validates
 rendering. The shared host driver must remain compatible with the image; the
 container does not install or replace a host driver.
+
+The default runtime limits OpenMP/OpenCV pools to two threads and OpenBLAS to
+one, avoiding host-core-sized pools inside an eight-CPU quota. Record overrides
+alongside measured sim/wall ratio and input ages; keep safety deadlines enabled.
+
+The pinned VINS ROS 2 port requires the Ceres 2.1 manifold API. `build_ceres.sh`
+builds a pinned CPU-only shared library in the mounted experiment directory;
+VINS and RTAB-Map use that prefix explicitly. Cached source and installed
+artifact identities are checked before reuse. Host and system Ceres packages
+are not replaced.
+
+`build.sh` starts no ROS processes and uses host networking so a loopback-bound
+host proxy can download fixed source dependencies. `run.sh` uses a separate
+bridge network for actual experiments. All interacting experiment processes must
+run in the same container, because ROS_LOCALHOST_ONLY is enabled.
 
 The ROS apt repository uses HTTP with the official GPG key and signed InRelease
 verification, because the repository HTTPS endpoint failed certificate-name
@@ -54,3 +69,28 @@ python3 fetch_euroc.py --destination "$WHEELTEC_SIM_ROOT/data" --sequence MH_05_
 Retain download records and results separately from Git; datasets, images, build
 trees and full run logs do not belong in the source repository. Publication
 should contain compact measured reports, manifest hashes and reproducible commands.
+
+## Session orchestration
+
+Run launch and mission in one container so discovery and teardown are shared:
+
+```bash
+sudo env WHEELTEC_SIM_ROOT="$WHEELTEC_SIM_ROOT" WHEELTEC_SIM_GPU=1 \
+  WHEELTEC_SIM_CPUS=32 bash run.sh python3 /work/containers/run_sim_trial.py \
+  --output /work/results/mapping-001 --database /work/results/room.db \
+  --mode mapping --estimator baseline --scenario all
+# Only after successful mapping and clean database shutdown:
+sudo env WHEELTEC_SIM_ROOT="$WHEELTEC_SIM_ROOT" WHEELTEC_SIM_GPU=1 \
+  WHEELTEC_SIM_CPUS=32 bash run.sh python3 /work/containers/run_sim_trial.py \
+  --output /work/results/localization-001 --database /work/results/room.db \
+  --mode localization --estimator baseline --scenario all
+```
+
+This runner stores launch/mission logs and exit codes and stops the process
+groups before returning. Repeats share one evolving pose; independent repeats
+require a new simulator launch and a fresh output directory. Preserve failed
+sessions. Resource quotas are experiment settings: the eight-CPU smoke ran below
+realtime and correctly triggered input deadlines. Raise the CPU quota or reduce
+measured workload without relaxing safety deadlines, then record the achieved
+sim/wall ratio. The initial source review does not establish live navigation
+acceptance; see the maintained experiment report for actual outcomes.

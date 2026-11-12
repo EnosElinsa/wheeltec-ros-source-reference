@@ -1,12 +1,12 @@
 # R680 VINS-Fusion 离线评估
 
-本轮实现的是 A/B/C 离线验证工具。在线导航基线为 RGB-D＋EKF，VINS 尚未接入在线导航；尚未在 R680 上编译、标定或证明定位效果。先验证 B（双目 VO），IMU 审计通过后才运行 C（双目 VIO）。本文实车命令仍待在 Ubuntu 22.04 / ROS 2 Humble 上执行。
+实车入口提供 A/B/C 离线验证工具，实车在线导航基线仍为 RGB-D＋EKF。新增的独立 EuRoC 基准和 Gazebo 入口支持 VINS 定位与仿真导航对照；仿真实现与验收记录见下方教材链接。尚未在 R680 上编译、标定或证明定位效果。实车先验证 B（双目 VO），IMU 审计通过后才运行 C（双目 VIO）。
 
 ## “VINS 接管驾驶”具体指什么
 
 VINS 估计车辆的位置、朝向和速度；Nav2 根据定位和障碍物生成速度指令，最终由看门狗和底盘执行。“接管驾驶”指把导航依赖的里程计改为经过验证的 VINS 输出，VINS 本身不规划路线或控制电机。
 
-目前代码复用了 VINS 实验的健康判定、录包审计、回放和统计，但 `/odom_vins` 仅用于离线比较。它没有连接在线 `/odom` 或驾驶 TF，也没有一键切换开关。通过下表实验后，还需实现在线坐标/速度/协方差适配和融合输入调整，再做导航验收。
+实车入口中的 `/odom_vins` 仅用于离线比较，没有连接实车 `/odom` 或驾驶 TF。仿真入口另行提供坐标、速度、协方差适配及 VIO 融合调整，不能据此放行实车。通过下表的本车实验后，仍需把经过验证的适配接入实车启动并完成导航验收。
 
 | 条件 | 要确认什么 | 当前状态 |
 | --- | --- | --- |
@@ -61,9 +61,9 @@ source "$HOME/vins_eval_ws/install/local_setup.bash"
 | [zinuok/VINS-Fusion-ROS2](https://github.com/zinuok/VINS-Fusion-ROS2) | `72023bc5d2abb14faa4c02a5c040d84f996b587a` |
 | [RTAB-Map core](https://github.com/introlab/rtabmap) | `afb63bd3380ab42710f3c70cd456665abd641997` |
 | [rtabmap_ros](https://github.com/introlab/rtabmap_ros) | `140156edc807549787c89c166adc8e69b54c56ed` |
-| [matlabbe 集成补丁](https://gist.github.com/matlabbe/ebbb343cd744da9d6d6ded2e1557fd) | `1a3991c08eef41a5ca6a9a1919c78008d3cb6de5` |
+| [matlabbe 集成补丁](https://gist.github.com/matlabbe/ebbb343cd744da9d6d6d6ded2e1557fd) | `1a3991c08eef41a5ca6a9a1919c78008d3cb6de5` |
 
-补丁 SHA256 为 `644c7fd1c2b2b32ed1645ae689eb2ac586f444ecc3933ff556dc6ba9cd5f7a49`。已针对固定 VINS 源码检查补丁可应用；Humble / Ceres 的实际编译兼容性仍需上述构建验证。外部 VINS 为 GPLv3；本包的 Apache-2.0 声明不改变外部组件或组合分发的许可要求。
+补丁 SHA256 为 `644c7fd1c2b2b32ed1645ae689eb2ac586f444ecc3933ff556dc6ba9cd5f7a49`。固定 ROS 2 移植版已修复 gist 中的两处 Duration 和 GPU 宏，构建只排除这三处已解决的文件补丁。该移植版需要 Ceres ≥2.1；容器脚本在独立目录构建固定 Ceres 2.1，并显式向 VINS 与 RTAB-Map 传入 `Ceres_DIR`。RTAB-Map 启用 Ceres，并构建 `rtabmap_util` 所需 GUI 库；不启动 GUI 应用。实际构建与运行证据另行记录。外部 VINS 为 GPLv3；本包的 Apache-2.0 声明不改变外部组件或组合分发的许可要求。
 
 此外应用本包 `tools/rtabmap_vins_visual_health.patch`：上游内点统计会包含滑窗里的历史观测，补丁仅将当前图像仍在观测的已求解特征计为内点；当前图像尚未被求解器处理时不沿用旧位姿发布成功。补丁及 SHA256 保存在构建 evidence 中。这里只修正输出与诊断，不改变估计器调度；若 IMU 不及时导致积压，实验会记录跟踪丢失，不能视为正常视觉传播。该补丁同样尚待 ROS 编译和遮挡场景验证。
 

@@ -1,0 +1,4 @@
+# Shell entrypoints and upstream patches are consumed inside Linux containers.
+*.sh text eol=lf
+*.patch text eol=lf
+Dockerfile text eol=lf
