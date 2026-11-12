@@ -161,3 +161,13 @@ def test_missing_custom_bt_plugin_list_gets_all_libraries_used_by_the_trees(base
     result = build_visual_nav_params(baseline, "pose.xml", through_tree_path="poses.xml", runtime=runtime)
     plugins = result["bt_navigator"]["ros__parameters"]["plugin_lib_names"]
     assert set(required) <= set(plugins)
+
+
+def test_each_navigation_goal_recreates_tree_node_state_even_with_same_xml(baseline, runtime):
+    baseline['bt_navigator']['ros__parameters']['always_reload_bt_xml'] = False
+    output = build_visual_nav_params(baseline, 'pose.xml', through_tree_path='poses.xml', runtime=runtime)
+    bt = output['bt_navigator']['ros__parameters']
+    assert bt['always_reload_bt_xml'] is True
+    assert bt['default_nav_to_pose_bt_xml'] == 'pose.xml'
+    assert bt['default_nav_through_poses_bt_xml'] == 'poses.xml'
+    assert baseline['bt_navigator']['ros__parameters']['always_reload_bt_xml'] is False

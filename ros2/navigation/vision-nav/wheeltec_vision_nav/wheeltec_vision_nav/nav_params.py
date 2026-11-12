@@ -107,7 +107,9 @@ def build_visual_nav_params(source, behavior_tree_path, *, supervised_reverse=Fa
     for key in ("amcl", "amcl_map_client", "amcl_rclcpp_node", "map_server", "map_saver"):
         cfg.pop(key, None)
     bt = cfg.setdefault("bt_navigator", {}).setdefault("ros__parameters", {})
-    bt.update(odom_topic="/odom", default_nav_to_pose_bt_xml=behavior_tree_path,
+    # Recreate goal-specific BT node state (including replanning timers) for
+    # every accepted navigation request, even when its XML path is unchanged.
+    bt.update(odom_topic="/odom", always_reload_bt_xml=True, default_nav_to_pose_bt_xml=behavior_tree_path,
               default_nav_through_poses_bt_xml=through_tree_path or behavior_tree_path)
     plugins = bt.get("plugin_lib_names", [])
     if not isinstance(plugins, list) or any(not isinstance(name, str) or not name for name in plugins):
